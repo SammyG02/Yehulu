@@ -142,7 +142,7 @@ function App() {
             <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
               <TrendingUp className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Yehulu <span className="text-blue-400">Yield</span></h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Yehulu <span className="text-blue-400">Digital</span></h1>
           </div>
           <p className="text-slate-400 text-sm">Compound Growth Dashboard • 40% APY</p>
         </div>
@@ -260,8 +260,8 @@ function App() {
               <button
                 type="submit"
                 className={`w-full py-3 px-4 rounded-lg font-bold text-white transition-all transform active:scale-[0.98] ${txnType === 'deposit'
-                    ? 'bg-green-600 hover:bg-green-500 shadow-[0_0_15px_rgba(22,163,74,0.4)]'
-                    : 'bg-red-600 hover:bg-red-500 shadow-[0_0_15px_rgba(220,38,38,0.4)]'
+                  ? 'bg-green-600 hover:bg-green-500 shadow-[0_0_15px_rgba(22,163,74,0.4)]'
+                  : 'bg-red-600 hover:bg-red-500 shadow-[0_0_15px_rgba(220,38,38,0.4)]'
                   }`}
               >
                 Execute {txnType === 'deposit' ? 'Deposit' : 'Withdrawal'}
