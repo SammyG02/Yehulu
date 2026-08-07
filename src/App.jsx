@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Analytics } from "@vercel/analytics/next"
+import { Analytics } from '@vercel/analytics/react'
 import { TrendingUp, Wallet, History, Plus, Calendar, ArrowUpRight, ArrowDownRight, BarChart3, Clock } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -516,9 +516,9 @@ function App() {
           background: #475569;
         }
       `}} />
-    </div>,
-    <Analytics />
-  ), <Analytics />
+      <Analytics />
+    </div>
+  )
 
 }
 
