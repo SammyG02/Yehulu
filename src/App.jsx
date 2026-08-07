@@ -516,9 +516,9 @@ function App() {
           background: #475569;
         }
       `}} />
-    </div>,
-    <Analytics />
-  ), <Analytics />
+      <Analytics />
+    </div>
+  )
 
 }
 
