@@ -1,16 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToday } from '../hooks/useToday.js'
-import { addDays } from '../lib/dates.js'
+import { SavingsContext } from './contexts.js'
 import { formatDate, formatMoney } from '../lib/format.js'
-import { findNewOverdraft, simulateLedger } from '../lib/interest.js'
+import { findNewOverdraft } from '../lib/interest.js'
 import { emptyState, loadState, newId, saveState, STORAGE_KEY, toRates } from '../lib/storage.js'
 
 /**
  * The single source of truth for the app: the account, its transactions, and
- * every action that changes them. Pages read from here; nothing else writes
- * to storage.
+ * every action that changes them. Pages read it with useSavings() from
+ * hooks.js; nothing else writes to storage.
  */
-const SavingsContext = createContext(null)
 
 export function SavingsProvider({ children }) {
   const today = useToday()
@@ -59,14 +58,14 @@ export function SavingsProvider({ children }) {
    * deepens an overdraft is rejected; an overdraft that already exists in the
    * history doesn't block anything else.
    */
-  const newOverdraft = (nextTransactions) => {
+  const newOverdraft = useCallback((nextTransactions) => {
     const current = dataRef.current
     return findNewOverdraft(current.transactions, nextTransactions, toRates(current.account))
-  }
-  const overdraftError = (nextTransactions) => {
+  }, [])
+  const overdraftError = useCallback((nextTransactions) => {
     const date = newOverdraft(nextTransactions)
     return date ? `Not enough money. The balance would go below zero on ${formatDate(date)}.` : null
-  }
+  }, [newOverdraft])
 
   const label = (txn) => `${txn.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ${formatMoney(txn.amount)}`
 
@@ -78,7 +77,7 @@ export function SavingsProvider({ children }) {
     setData(d => ({ ...d, transactions: [...d.transactions, record] }))
     showToast(`${label(txn)} added`)
     return null
-  }, [setData, showToast])
+  }, [setData, overdraftError, showToast])
 
   /** Returns an error message, or null on success. */
   const updateTransaction = useCallback((id, changes) => {
@@ -88,7 +87,7 @@ export function SavingsProvider({ children }) {
     setData(d => ({ ...d, transactions: apply(d.transactions) }))
     showToast('Transaction updated')
     return null
-  }, [setData, showToast])
+  }, [setData, overdraftError, showToast])
 
   /** Returns true if deleted. */
   const deleteTransaction = useCallback((txn) => {
@@ -103,7 +102,7 @@ export function SavingsProvider({ children }) {
       onClick: () => setData(d => ({ ...d, transactions: [...d.transactions, txn] })),
     })
     return true
-  }, [setData, showToast])
+  }, [setData, newOverdraft, showToast])
 
   const actions = useMemo(() => ({
     addTransaction,
@@ -127,7 +126,7 @@ export function SavingsProvider({ children }) {
     closeComposer: () => setComposer(null),
     showToast,
     dismissToast,
-  }), [addTransaction, updateTransaction, deleteTransaction, showToast, dismissToast])
+  }), [addTransaction, updateTransaction, deleteTransaction, setData, showToast, dismissToast])
 
   const value = useMemo(() => ({
     today,
@@ -142,15 +141,4 @@ export function SavingsProvider({ children }) {
   }), [today, data, rates, composer, toast, actions])
 
   return <SavingsContext.Provider value={value}>{children}</SavingsContext.Provider>
-}
-
-export const useSavings = () => useContext(SavingsContext)
-
-/** Day-by-day ledger from the first transaction through `horizonDays` from today. */
-export function useLedger(horizonDays) {
-  const { transactions, rates, today } = useSavings()
-  return useMemo(
-    () => simulateLedger({ transactions, rates, fromDate: today, endDate: addDays(today, horizonDays - 1) }),
-    [transactions, rates, today, horizonDays],
-  )
 }

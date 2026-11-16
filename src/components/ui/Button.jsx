@@ -14,7 +14,7 @@ const SIZES = {
   lg: 'h-12 px-5 text-base gap-2 rounded-xl',
 }
 
-export const buttonClass = ({ variant = 'primary', size = 'md', block = false, className = '' } = {}) =>
+const buttonClass = ({ variant = 'primary', size = 'md', block = false, className = '' } = {}) =>
   [
     'inline-flex items-center justify-center font-semibold transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50',
     VARIANTS[variant],

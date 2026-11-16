@@ -11,7 +11,7 @@ import { Card, CardHeader } from '../components/ui/Card.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, greeting } from '../lib/format.js'
 import { findOverdraft, summarize } from '../lib/interest.js'
-import { useLedger, useSavings } from '../state/savings.jsx'
+import { useLedger, useSavings } from '../state/hooks.js'
 
 // Black card with brand-green accents, echoing the black wordmark and green mark.
 const HERO = 'relative overflow-hidden rounded-3xl bg-[#0b0f0d] p-4 text-white shadow-float ring-1 ring-white/5 sm:p-6'

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router'
 import { Plus } from 'lucide-react'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 import { NAV_ITEMS } from './navigation.js'
 
 function Tab({ to, label, icon: Icon, end }) {

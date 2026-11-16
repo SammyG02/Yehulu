@@ -1,7 +1,8 @@
 import { Calculator, Database, Palette } from 'lucide-react'
 import DataSettings from './DataSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
-import ThemeSettings, { THEME_OPTIONS } from './ThemeSettings.jsx'
+import ThemeSettings from './ThemeSettings.jsx'
+import { THEME_OPTIONS } from './themeOptions.js'
 
 /**
  * Every settings section. Add a section by adding an entry here: it gets a

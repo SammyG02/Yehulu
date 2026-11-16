@@ -1,6 +1,6 @@
 import { Link, NavLink } from 'react-router'
 import { Plus } from 'lucide-react'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { Logo } from './Logo.jsx'
 import { NAV_ITEMS } from './navigation.js'

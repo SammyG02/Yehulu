@@ -6,7 +6,7 @@ import { AffixInput, Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatPercent } from '../../lib/format.js'
 import { dailyRate, effectiveAnnualRate } from '../../lib/interest.js'
 import { sanitizeAccount, toRates } from '../../lib/storage.js'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 
 const isPercent = (v) => v !== '' && Number(v) >= 0 && Number(v) <= 100
 

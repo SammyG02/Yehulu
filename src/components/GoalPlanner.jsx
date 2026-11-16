@@ -1,26 +1,14 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
 import { Target } from 'lucide-react'
 import { formatDate, formatDuration, formatMoney } from '../lib/format.js'
-import { planGoal } from '../lib/interest.js'
 import { sanitizeGoal } from '../lib/storage.js'
-import { useSavings } from '../state/savings.jsx'
+import { useGoalPlan } from '../hooks/useGoalPlan.js'
+import { useSavings } from '../state/hooks.js'
 import { Card, CardHeader } from './ui/Card.jsx'
 import { Field, MoneyInput } from './ui/Field.jsx'
 
 const LONG_DATE = { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }
-
-/** Runs the planner for the saved goal. Shared by the planner and the Home card. */
-export function useGoalPlan(goal) {
-  const { transactions, rates, today } = useSavings()
-  return useMemo(() => {
-    if (!goal.target) return null
-    return {
-      plan: planGoal({ transactions, rates, today, target: goal.target, monthlyDeposit: goal.monthly }),
-      without: goal.monthly > 0 ? planGoal({ transactions, rates, today, target: goal.target }) : undefined,
-    }
-  }, [goal.target, goal.monthly, transactions, rates, today])
-}
 
 function PlanResult({ goal, result }) {
   if (!result) {

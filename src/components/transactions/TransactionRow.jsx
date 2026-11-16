@@ -1,6 +1,6 @@
 import { ArrowDownLeft, ArrowUpRight, ChevronRight } from 'lucide-react'
 import { formatDate, formatSigned } from '../../lib/format.js'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 
 /** One transaction. Tapping it opens the edit sheet. */
 export function TransactionRow({ txn, showYear = true }) {

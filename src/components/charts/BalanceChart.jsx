@@ -1,7 +1,7 @@
 import { useId, useMemo } from 'react'
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { formatCompact, formatDate, formatMoney } from '../../lib/format.js'
-import { useThemeColors } from '../../state/theme.jsx'
+import { useThemeColors } from '../../state/hooks.js'
 
 function ChartTooltip({ active, payload }) {
   if (!active || !payload?.length) return null

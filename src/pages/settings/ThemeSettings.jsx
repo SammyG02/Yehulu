@@ -1,13 +1,8 @@
-import { Check, Monitor, Moon, Sun } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Card } from '../../components/ui/Card.jsx'
-import { useTheme } from '../../state/theme.jsx'
-
-export const THEME_OPTIONS = [
-  { value: 'system', label: 'System', description: 'Match this phone or computer', icon: Monitor },
-  { value: 'light', label: 'Light', description: 'Always light', icon: Sun },
-  { value: 'dark', label: 'Dark', description: 'Always dark', icon: Moon },
-]
+import { useTheme } from '../../state/hooks.js'
+import { THEME_OPTIONS } from './themeOptions.js'
 
 export default function ThemeSettings() {
   const { preference, setPreference } = useTheme()

@@ -8,7 +8,7 @@ import { Card } from '../components/ui/Card.jsx'
 import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatSigned } from '../lib/format.js'
-import { useSavings } from '../state/savings.jsx'
+import { useSavings } from '../state/hooks.js'
 
 const FILTERS = [
   { value: 'all', label: 'All' },

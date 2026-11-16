@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/lib/"
+    "test": "node --test src/lib/",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
@@ -19,8 +20,13 @@
     "recharts": "^2.8.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.14",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.8",
+    "globals": "^17.14.0",
     "postcss": "^8.4.27",
     "tailwindcss": "^3.3.3",
     "vite": "^6.4.6"

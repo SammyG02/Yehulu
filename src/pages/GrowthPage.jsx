@@ -11,7 +11,7 @@ import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, formatPercent } from '../lib/format.js'
 import { effectiveAnnualRate, summarize } from '../lib/interest.js'
-import { useLedger, useSavings } from '../state/savings.jsx'
+import { useLedger, useSavings } from '../state/hooks.js'
 
 const HORIZONS = [
   { value: 30, label: '1M', long: '30 days' },

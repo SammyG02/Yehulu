@@ -4,8 +4,8 @@ import { PageHeader } from '../../components/layout/AppShell.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { useMediaQuery } from '../../hooks/useMediaQuery.js'
 import { usePageTitle } from '../../hooks/usePageTitle.js'
-import { useSavings } from '../../state/savings.jsx'
-import { useTheme } from '../../state/theme.jsx'
+import { useSavings } from '../../state/hooks.js'
+import { useTheme } from '../../state/hooks.js'
 import { SETTINGS_SECTIONS } from './sections.js'
 
 function SettingsMenu() {

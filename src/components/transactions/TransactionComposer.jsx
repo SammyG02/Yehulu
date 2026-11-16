@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { formatAmount } from '../../lib/format.js'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { Field, inputClass } from '../ui/Field.jsx'
 import { Segmented } from '../ui/Segmented.jsx'

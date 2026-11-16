@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ThemeContext } from './contexts.js'
 
 const KEY = 'yehuluTheme'
 const PREFERENCES = ['system', 'light', 'dark']
@@ -22,8 +23,6 @@ const readPreference = () => {
     return 'system'
   }
 }
-
-const ThemeContext = createContext(null)
 
 export function ThemeProvider({ children }) {
   const [preference, setPreferenceState] = useState(readPreference)
@@ -52,17 +51,4 @@ export function ThemeProvider({ children }) {
 
   const value = useMemo(() => ({ preference, resolved, setPreference }), [preference, resolved, setPreference])
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-}
-
-export const useTheme = () => useContext(ThemeContext)
-
-/** Theme colours as CSS colour strings, for libraries that need real values (Recharts). */
-export function useThemeColors() {
-  const { resolved } = useTheme()
-  return useMemo(() => {
-    const css = getComputedStyle(document.documentElement)
-    const rgb = (name) => `rgb(${css.getPropertyValue(`--${name}`).trim().split(/\s+/).join(', ')})`
-    return { brand: rgb('brand'), accent: rgb('accent'), line: rgb('line'), muted: rgb('muted'), ink: rgb('ink') }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved])
 }

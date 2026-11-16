@@ -4,7 +4,7 @@ import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI
 import { Card } from '../../components/ui/Card.jsx'
 import { toDateKey } from '../../lib/dates.js'
 import { exportState, parseBackup } from '../../lib/storage.js'
-import { useSavings } from '../../state/savings.jsx'
+import { useSavings } from '../../state/hooks.js'
 
 export default function DataSettings() {
   const { data, actions } = useSavings()
