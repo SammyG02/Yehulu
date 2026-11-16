@@ -133,3 +133,49 @@ Tickets and their "Done when" lines are in [ROADMAP.md](ROADMAP.md).
 - **Blocked:** none. Push/merge still waits on the user.
 - **Deferred to S1-2 (QA 22):** the helper takes one `rates` for both sides, so editing a past rate period can't be checked with it yet.
 - **Next:** QA verifies S1-1b, then S1-6 (ESLint, separate commit), then S1-2.
+
+### 2026-11-16 · PM
+- **Done:** Reviewed S1-1b (d45ec29): PASS from the PM. It ticks once QA passes. Its "Done when" is met: an existing overdraft no longer blocks unrelated adds, it has a regression test (14 tests in overdraft.test.js), and the helper is easy for S1-2 to extend. The stale-state part of S1-5 was absorbed into it, which was justified because it's the same code path.
+- **Blocked:** S1-1 Vercel build, waiting on the user's push.
+- **Next:**
+  - QA: run the 27 checks on S1-1b (UI: banner, delete confirm, light/dark, 360px).
+  - Developer: S1-6 (ESLint), then S1-2.
+
+### 2026-11-16 · PM
+- **Process change (CEO decision after the 2nd collision):** QA now works only in its own worktree, on its own branch.
+  - Setup, once: `git worktree add -b qa ../Yehulu-qa redesign`. Plain `... redesign` fails, because `redesign` is already checked out in the main tree.
+  - QA syncs the Developer's work: `git merge --ff-only redesign` (or `git rebase redesign` if QA has its own commits).
+  - QA's own test commits reach `redesign` when the Developer runs `git merge qa` from the main tree.
+  - QA never edits files in `C:\Users\samue\dev\Yehulu` again. That folder belongs to the Developer.
+- **Why:** rules alone didn't stop two collisions in one sprint. Physical separation does.
+- **Sync correction (from the CEO):** once `qa` has commits of its own, `git merge --ff-only redesign` refuses to run. Use a plain `git merge redesign`. Don't use `git rebase redesign` as I suggested earlier: it rewrites `qa` commits the Developer may already have merged, which creates duplicates.
+
+### 2026-11-16 · QA Engineer
+- **Done: S1-1b verified at `d45ec29`: PASS.**
+  - `npm test` (60 tests: 55 pass, 0 fail, 5 todo) and `npm run build` pass, in the main tree and in my own worktree (`../Yehulu-qa`, branch `qa`).
+  - Logic: 30 independent checks of `findNewOverdraft` run from a scratch script, all pass. They cover every unit item in my plan, including the three the Developer's tests skip (4: a plain oversized withdrawal; 6: a withdrawal on an already-negative day; 13: an edit that cures an early overdraft but worsens a later one), plus the PM's headline case (100 deposit 1 Jan, 50 withdrawal 5 Jan, deposit deleted, 1,000 deposit on 1 Jun is accepted).
+  - Browser: 19 checks driven in headless Chrome on the production build, at 360×780 and 1280×800, in light and dark: 76/76 pass. Covered: delete with "Delete anyway", banner text and Review link, unrelated deposit accepted with a toast, deepening withdrawal rejected, curing deposit clears the banner, delete then Undo, a future overdraft loaded from saved data ("will go below zero on"), no banner on the welcome screen, no horizontal overflow, Deposit button still above the fold. I looked at the screenshots for both themes and both widths.
+  - "Done when": an existing overdraft no longer blocks unrelated adds (met); regression test (met, `overdraft.test.js`); S1-2 rate edits use the same rule (deferred to S1-2 by the PM).
+- **Not checked:** real phones, Safari and Firefox, a screen reader, and cross-tab sync through the new `dataRef`.
+- **New bugs found during the check (none caused by S1-1b, none block it):**
+  1. A toast covers the composer's error message on phones. Repro at 360px: add a deposit, then within 3 seconds open Withdraw and submit an amount that is rejected. The "Not enough money" message sits behind the "Deposit … added" toast until it clears (6 seconds after a delete, because of Undo). Suggest hiding or raising the toast while the sheet is open.
+  2. "You put in" shows a negative amount (Br -900.00) once withdrawals exceed deposits. From my first review; I can't see it on the roadmap.
+  3. Cosmetic: the amount field in the composer shows a square green focus outline inside the rounded panel.
+- **Suggested, not required:** add unit tests for plan items 4, 6 and 13 to `overdraft.test.js`.
+- **Blocked:** nothing.
+- **Next:** S1-2 verification when handed over; I will add "findNewOverdraft takes before and after rate schedules" to that plan.
+
+### 2026-11-16 · Developer
+- **Done:** S1-6, in commit "Add ESLint and fix lint issues" on `redesign`.
+  - Flat config (`eslint.config.js`) plus `npm run lint` (`eslint .`). It runs recommended rules, `react-hooks/rules-of-hooks` and `exhaustive-deps` as errors, and `react-refresh/only-export-components`.
+  - **Result:** lint exits 0 with no warnings. npm test: 60 tests, 55 pass, 5 todo, 0 fail. Build is OK. A full browser pass at 360px, 390px, 820px and 1440px, light and dark, plus the S1-1b overdraft flow, had no console errors.
+  - **Fixes:**
+    - `newOverdraft`/`overdraftError` are now stable `useCallback`s, listed as dependencies. There is no eslint-disable anywhere.
+    - Contexts moved to `state/contexts.js`; `useSavings`, `useLedger`, `useTheme` and `useThemeColors` moved to `state/hooks.js`. Providers stay in `savings.jsx`/`theme.jsx`, and imports were updated in 14 files.
+    - `useGoalPlan` moved to `hooks/useGoalPlan.js`, and `THEME_OPTIONS` to `pages/settings/themeOptions.js`.
+    - `buttonClass` is no longer exported.
+- **Differs from ticket:**
+  - Uses ESLint 10 / react-hooks 7, because npm marks ESLint 9 as unsupported. Only rules-of-hooks and exhaustive-deps are on from react-hooks, not v7's new compiler rules.
+  - Added `globals` (dev-only, part of the standard Vite set) for browser and Node globals.
+- **Blocked:** none. The user can veto ESLint (`npm uninstall eslint @eslint/js eslint-plugin-react-hooks eslint-plugin-react-refresh globals` and delete eslint.config.js).
+- **Next:** S1-2 once QA passes S1-1b. Add `npm run lint` to the definition of done.

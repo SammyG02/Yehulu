@@ -63,7 +63,8 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 
 ### [ ] S1-5 Small fixes found in review (P1)
 - **Home "Recent activity" shows future scheduled transactions at the top.** Show only past and today's items, and add a compact "Upcoming" list (next 3) when scheduled items exist.
-- **Stale state in `addTransaction` / `updateTransaction`.** They build `next` from the render-time `data.transactions` and then write it, so a cross-tab sync between render and click is lost. Validate against the current state inside the update, or re-read it first.
+- ~~**Stale state in `addTransaction` / `updateTransaction`.**~~ **Done early in S1-1b (d45ec29)** via `dataRef`. Kept below for reference.
+  - Original: They build `next` from the render-time `data.transactions` and then write it, so a cross-tab sync between render and click is lost. Validate against the current state inside the update, or re-read it first.
 - **Replace `window.confirm`** (delete, restore, delete all, overdraft delete) with an in-app confirm sheet that uses the existing `Sheet`. Native dialogs look broken in an installed PWA.
 - **Restore bugs (QA's 3 todo tests):** an amount of `"1e400"` becomes Infinity, duplicate ids are kept, and a blank rate loads as 0% when it should use the default. Turn the todo tests into passing tests.
 - **Date range:** limit transaction dates to `2000-01-01` up to today + 5 years, in both the composer (`min`/`max` plus validation) and `sanitizeTransaction`. A typo year like 1026 currently makes the app simulate 1,000 years on every page.
@@ -116,3 +117,4 @@ Friends share one account and each person earns on their own deposits (see the p
 |---|---|---|---|
 | 2026-11-16 | Baseline | — | 14/14 tests, build clean, restructure uncommitted |
 | 2026-11-16 | S1-1 | PASS (partial) | 5 logical commits, clean tree, build OK, tests 35 pass / 3 todo. **Better than planned:** committed on a `redesign` branch instead of directly on main, which is safer. **Open:** merge to main and check the Vercel build (needs the user's OK). Deleting fix.js was accepted as intended. |
+| 2026-11-16 | S1-1b | PASS (PM), QA pending | `findNewOverdraft` plus 14 regression tests, including the PM's reproduction and QA's cases. Tests 55 pass / 5 todo, build OK. **Better than planned:** it also catches deepening an existing overdraft, and it fixed S1-5's stale-state bug with a `dataRef`, since that was the same code path. **Watch:** `overdraftError`/`newOverdraft` aren't in the useCallback dependency lists; it's safe because they read the ref, but ESLint will flag them in S1-6, so fix them properly rather than disabling the rule. |
