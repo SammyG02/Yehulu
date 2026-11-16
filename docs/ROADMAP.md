@@ -24,15 +24,21 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 
 ## Sprint 1: secure the work and make the numbers trustworthy
 
-### [ ] S1-1 Commit the restructure (P0, do first)
+### [~] S1-1 Commit the restructure (P0, do first): committed on branch `redesign`; waiting on the user to merge to main and check the Vercel build
 - Commit the current working tree in a few logical commits: lib + tests, state + hooks, components + pages, config (vercel, tailwind, index.html), README.
 - Confirm that deleting `fix.js` is intended.
 - **Done when:** `git status` is clean and `main` builds on Vercel.
+
+### [ ] S1-1b Overdraft lock-out (P0, found by QA, before S1-2)
+- **Bug:** `addTransaction` and `updateTransaction` run `findOverdraft` over the whole history. If history already contains an overdraft (for example after "Delete anyway"), every new transaction is rejected, even a large later deposit. Reproduced by the PM.
+- **Fix:** reject only a change that creates a new overdraft or moves the first one earlier. Compare `findOverdraft(before)` with `findOverdraft(after)`. Put this in a pure helper in `interest.js`. When history is already overdrawn, show a warning banner on Home with the date, linking to Activity.
+- **Done when:** an existing overdraft no longer blocks unrelated adds, the change is covered by a regression test, and the helper is written so S1-2 can extend it to rate schedules. That extension itself is S1-2 scope.
 
 ### [ ] S1-2 Rate history: changing the rate does not rewrite the past (P0)
 - Store `account.rates: [{ from: 'YYYY-MM-DD', annualRate, serviceCharge }]`, sorted by date. Migrate v2 to v3 by turning the current rates into a single entry dated at the first transaction (or today if there are none).
 - `simulateLedger` uses the rate in effect on each day.
 - **Settings → Logic:** offer "Change rate from [date]", defaulting to today, plus a list of past rate periods. Editing or deleting a past period should be possible but must warn that it recalculates history.
+- `findNewOverdraft` (from S1-1b) must accept the before and after **rate schedules**, so editing a past rate period is checked by the same rule. (QA flagged that the S1-1b helper takes a single rate.)
 - **Tests:**
   - A rate change mid-ledger affects only later days.
   - Migration from v2.
@@ -43,6 +49,7 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - Add a "Check against bank" action, on Home (from the balance card) or under Growth. The user enters the balance their Yehulu app or statement shows, and a date (default today).
 - Show our balance for that date and the difference. Under 1 Br counts as "Matches"; otherwise explain likely causes (missing transaction, wrong date, rate).
 - Save each check (`checks: [{ date, bankBalance }]`) and show the latest one as a small "Last matched [date]" badge.
+- **Second open question (QA):** for a check on a past date, do we compare against the balance before or after that day's interest? Keep this in one function until the product owner confirms.
 - **Rounding:** waiting on the product owner. If Yehulu rounds daily interest to the cent, put that behind a single constant in `interest.js` with a test. Don't guess.
 - **Done when:** a user can prove the app matches their bank in under 30 seconds.
 
@@ -50,17 +57,24 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - **PWA:** add a manifest (name, brand green `#24b663`, 192/512 icons plus a maskable icon) and an offline service worker via `vite-plugin-pwa`. Check that it installs on Android Chrome and iOS Safari.
 - Call `navigator.storage.persist()` on the first transaction.
 - **Backup reminder:** store `lastBackupAt`. If data has changed and the last backup is more than 14 days old (or there has never been one, with 5 or more transactions), show a dismissible nudge on Home linking to Settings → Data.
-- **Done when:** the app works in airplane mode after the first load, and a user with no backup is reminded.
+- **When saving fails** because storage is full or blocked, `saveState` must report it. Show a persistent banner: "Not saved on this device. Back up now." (Found by QA.)
+- **Device install checks** (Android/iOS) are done by the product owner; QA covers the manifest, service worker and offline behaviour on desktop.
+- **Done when:** the app works in airplane mode after the first load, a user with no backup is reminded, and a failed save is visible.
 
 ### [ ] S1-5 Small fixes found in review (P1)
 - **Home "Recent activity" shows future scheduled transactions at the top.** Show only past and today's items, and add a compact "Upcoming" list (next 3) when scheduled items exist.
 - **Stale state in `addTransaction` / `updateTransaction`.** They build `next` from the render-time `data.transactions` and then write it, so a cross-tab sync between render and click is lost. Validate against the current state inside the update, or re-read it first.
 - **Replace `window.confirm`** (delete, restore, delete all, overdraft delete) with an in-app confirm sheet that uses the existing `Sheet`. Native dialogs look broken in an installed PWA.
+- **Restore bugs (QA's 3 todo tests):** an amount of `"1e400"` becomes Infinity, duplicate ids are kept, and a blank rate loads as 0% when it should use the default. Turn the todo tests into passing tests.
+- **Date range:** limit transaction dates to `2000-01-01` up to today + 5 years, in both the composer (`min`/`max` plus validation) and `sanitizeTransaction`. A typo year like 1026 currently makes the app simulate 1,000 years on every page.
+- **Goal planner copy bugs:** see QA's entry in TEAM_LOG, including "today sooner" (the goal is reached the same day either way).
+- **`formatAmount(-0.3, { whole: true })` returns "-0".** It should return "0". QA has a todo test for it.
 
-### [ ] S1-6 Lint + test coverage (P1, PROPOSED: needs the user's OK for dev dependencies)
+### [ ] S1-6 Lint + test coverage (P1, ESLint approved by the CEO as dev-only; the user can veto)
 - **ESLint:** flat config with `eslint`, `@eslint/js`, `eslint-plugin-react-hooks` and `eslint-plugin-react-refresh` (the standard Vite React set). Rules: recommended plus `react-hooks/exhaustive-deps` as an error. No Prettier; keep the current style.
 - Add `npm run lint`, and make it part of the definition of done once it's clean.
-- **Tests:** split `interest.test.js` into `interest`, `storage` (migrate, sanitize, parseBackup errors) and `dates`/`format` tests. Point `test` at `node --test src/lib/`.
+- ~~Tests: split~~ **Done by QA:** 4 files (interest, storage, dates, format), 46 tests, with 5 todos that are tracked S1-5 bugs. Using separate dates/format files instead of one combined file was accepted as better. Remaining: ESLint only.
+- Original: split `interest.test.js` into `interest`, `storage` (migrate, sanitize, parseBackup errors) and `dates`/`format` tests. Point `test` at `node --test src/lib/`.
 - No UI test framework yet; QA does manual checks for UI. Revisit when S2-2 (recurring deposits) arrives.
 - **Done when:** `npm run lint` passes with no warnings, and storage, dates and format each have their own test file.
 - **Order:** QA can write the tests in parallel with S1-2. The Developer adds ESLint after S1-1, as a single commit.
@@ -101,3 +115,4 @@ Friends share one account and each person earns on their own deposits (see the p
 | Date | Ticket | Verdict | Notes |
 |---|---|---|---|
 | 2026-11-16 | Baseline | — | 14/14 tests, build clean, restructure uncommitted |
+| 2026-11-16 | S1-1 | PASS (partial) | 5 logical commits, clean tree, build OK, tests 35 pass / 3 todo. **Better than planned:** committed on a `redesign` branch instead of directly on main, which is safer. **Open:** merge to main and check the Vercel build (needs the user's OK). Deleting fix.js was accepted as intended. |
