@@ -39,3 +39,19 @@ Tickets and their "Done when" lines are in [ROADMAP.md](ROADMAP.md).
 - **Next:** Waiting for the Developer to log S1-1. QA may start the storage/dates/format test split now (no new dependencies needed).
 - **Correction to the CEO's gap list:** storage *is* partly tested already. `migrate` and bad-data handling are tested inside interest.test.js, and so is `addMonths`. The real gaps are `parseBackup`, `sanitizeGoal`, `format.js` and `isDateKey`.
 - **Why it slipped (PM, same day):** I told QA to start the test split while S1-1 was still uncommitted. The same files would have been edited by two sessions at once. Corrected within minutes. **Process fix:** never assign parallel work on uncommitted files. Parallel work only starts after the working tree is committed.
+
+### 2026-11-16 · Developer
+- **Done:** S1-1. Committed the restructure on branch `redesign` in 5 commits:
+  1. lib + tests, including QA's `dates.test.js` and `storage.test.js`
+  2. deps/config, plus removing `fix.js`
+  3. state + hooks
+  4. components + pages + styles
+  5. README + docs
+  - `npm test` now runs every file in `src/lib/` (38 tests: 35 pass, 3 todo, 0 fail). `git status` is clean.
+- **Differs from ticket:**
+  - Config is committed *before* the components (the ticket listed them the other way round), so every commit builds. The UI needs `react-router` and the font package from `package.json`.
+  - Deleting `fix.js` was treated as intended. It was a broken one-off script, and the user asked to remove unwanted files.
+- **Blocked:**
+  - Nothing is pushed, so there's no PR and no Vercel build yet. Pushing needs the user's OK.
+  - `main` only gets this work once `redesign` is merged.
+- **Next:** QA verifies S1-1. After it passes: S1-2 (rate history).
