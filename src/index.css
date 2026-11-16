@@ -2,8 +2,92 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens as RGB channels, consumed by tailwind.config.js. */
+/* Yehulu SACCOS brand: green #24b663, pale green #e7f7ee, black, white. */
+:root {
+  --canvas: 247 249 248;
+  --surface: 255 255 255;
+  --sunken: 239 243 241;
+  --line: 224 230 227;
+  --ink: 10 12 11;
+  --muted: 98 110 104;
+  --brand: 36 182 99; /* #24b663, fills, icons, chart lines */
+  --brand-strong: 30 160 86; /* hover on fills */
+  --brand-ink: 21 127 67; /* green text on light backgrounds (readable contrast) */
+  --brand-soft: 231 247 238; /* #e7f7ee */
+  --on-brand: 4 22 12; /* text on green: black, like the wordmark */
+  --neg: 196 40 72;
+  --neg-soft: 252 230 235;
+  --accent: 180 100 4;
+  --accent-soft: 253 240 205;
+  color-scheme: light;
+}
+
+.dark {
+  --canvas: 10 13 11;
+  --surface: 19 24 21;
+  --sunken: 14 18 16;
+  --line: 36 44 40;
+  --ink: 236 240 238;
+  --muted: 145 156 150;
+  --brand: 36 182 99;
+  --brand-strong: 52 204 118;
+  --brand-ink: 74 214 134;
+  --brand-soft: 17 46 30;
+  --on-brand: 3 20 10;
+  --neg: 251 113 133;
+  --neg-soft: 62 22 32;
+  --accent: 251 191 36;
+  --accent-soft: 58 42 10;
+  color-scheme: dark;
+}
+
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-canvas font-sans text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-canvas;
+  }
+
+  /* Number spinners are tiny targets and easy to bump by accident. */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer utilities {
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line)) transparent;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -2,8 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yehulu Savings Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Track your Yehulu savings: daily compound interest, what you've earned, and when you'll reach your goal." />
+    <meta name="theme-color" content="#f7f9f8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Yehulu</title>
+    <script>
+      // Apply the saved theme before first paint so there is no light/dark flash.
+      (function () {
+        try {
+          var pref = localStorage.getItem('yehuluTheme') || 'system'
+          var dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) {
+            document.documentElement.classList.add('dark')
+            document.querySelector('meta[name=theme-color]').setAttribute('content', '#0a0d0b')
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
