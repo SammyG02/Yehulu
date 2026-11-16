@@ -11,6 +11,7 @@ import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, formatPercent } from '../lib/format.js'
 import { effectiveAnnualRate, summarize } from '../lib/interest.js'
+import { toFraction } from '../lib/storage.js'
 import { useLedger, useSavings } from '../state/hooks.js'
 
 const HORIZONS = [
@@ -23,7 +24,7 @@ const HORIZONS = [
 
 export default function GrowthPage() {
   usePageTitle('Growth')
-  const { transactions, today, rates, actions } = useSavings()
+  const { transactions, today, currentRate, actions } = useSavings()
   const [horizon, setHorizon] = useState(90)
   const ledger = useLedger(horizon)
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
@@ -55,7 +56,7 @@ export default function GrowthPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4 pt-2 sm:px-5">
             <ChartLegend />
             <span className="text-xs text-muted">
-              Grows {formatPercent(effectiveAnnualRate(rates))} a year, assuming no other transactions
+              Grows {formatPercent(effectiveAnnualRate(toFraction(currentRate)))} a year at today's rate, with no other transactions
             </span>
           </div>
         </Card>

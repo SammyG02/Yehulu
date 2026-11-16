@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_ACCOUNT, emptyState, exportState, migrate, parseBackup, sanitizeAccount, sanitizeGoal, toRates,
+  DEFAULT_ACCOUNT_NAME, DEFAULT_RATE, emptyState, exportState, migrate, parseBackup, sanitizeAccount, sanitizeGoal, toRates,
 } from './storage.js'
 
 const TODAY = '2026-11-16'
@@ -18,7 +18,7 @@ const v2 = (over = {}) => ({
 
 test('anything that is not an object loads as an empty state', () => {
   for (const raw of [null, undefined, 'hello', 42, true, NaN]) {
-    assert.deepEqual(migrate(raw, TODAY), emptyState(), String(raw))
+    assert.deepEqual(migrate(raw, TODAY), emptyState(TODAY), String(raw))
   }
 })
 
@@ -27,7 +27,7 @@ test('missing or wrongly typed sections fall back to defaults', () => {
     const state = migrate(raw, TODAY)
     assert.deepEqual(state.transactions, [])
     assert.deepEqual(state.goal, { target: null, monthly: 0 })
-    assert.equal(state.account.name, DEFAULT_ACCOUNT.name)
+    assert.equal(state.account.name, DEFAULT_ACCOUNT_NAME)
     assert.equal(typeof state.version, 'number')
   }
 })
@@ -72,23 +72,29 @@ test('a transaction without an id gets a unique one', () => {
 
 // ---- account and goal ------------------------------------------------------
 
+// Since v3 the account holds a rate history. An old single-rate account (v2)
+// becomes one period starting on the date passed in.
+const legacyRate = (account) => sanitizeAccount(account, TODAY).rates[0]
+
 test('sanitizeAccount keeps valid rates, including zero, and rejects the rest', () => {
-  assert.deepEqual(sanitizeAccount({ name: '  Gold  ', annualRate: '35.5', serviceCharge: 0 }),
-    { name: 'Gold', annualRate: 35.5, serviceCharge: 0 })
-  assert.equal(sanitizeAccount({ annualRate: 0 }).annualRate, 0)
-  assert.equal(sanitizeAccount({ annualRate: 100 }).annualRate, 100)
+  assert.deepEqual(sanitizeAccount({ name: '  Gold  ', annualRate: '35.5', serviceCharge: 0 }, TODAY),
+    { name: 'Gold', rates: [{ from: TODAY, annualRate: 35.5, serviceCharge: 0 }] })
+  assert.equal(legacyRate({ annualRate: 0 }).annualRate, 0)
+  assert.equal(legacyRate({ annualRate: 100 }).annualRate, 100)
   for (const bad of [-1, 100.01, 'abc', NaN, Infinity, undefined, {}]) {
-    assert.equal(sanitizeAccount({ annualRate: bad }).annualRate, DEFAULT_ACCOUNT.annualRate, `rate ${String(bad)}`)
-    assert.equal(sanitizeAccount({ serviceCharge: bad }).serviceCharge, DEFAULT_ACCOUNT.serviceCharge, `charge ${String(bad)}`)
+    assert.equal(legacyRate({ annualRate: bad }).annualRate, DEFAULT_RATE.annualRate, `rate ${String(bad)}`)
+    assert.equal(legacyRate({ serviceCharge: bad }).serviceCharge, DEFAULT_RATE.serviceCharge, `charge ${String(bad)}`)
   }
-  assert.equal(sanitizeAccount({ name: '   ' }).name, DEFAULT_ACCOUNT.name)
-  assert.equal(sanitizeAccount({ name: 'n'.repeat(99) }).name.length, 40)
-  assert.deepEqual(sanitizeAccount(null), DEFAULT_ACCOUNT)
+  assert.equal(sanitizeAccount({ name: '   ' }, TODAY).name, DEFAULT_ACCOUNT_NAME)
+  assert.equal(sanitizeAccount({ name: 'n'.repeat(99) }, TODAY).name.length, 40)
+  assert.deepEqual(sanitizeAccount(null, TODAY), { name: DEFAULT_ACCOUNT_NAME, rates: [{ from: TODAY, ...DEFAULT_RATE }] })
 })
 
-test('toRates turns percentages into fractions', () => {
-  assert.deepEqual(toRates({ annualRate: 40, serviceCharge: 10 }), { annualRate: 0.4, serviceCharge: 0.1 })
-  assert.deepEqual(toRates({ annualRate: 0, serviceCharge: 0 }), { annualRate: 0, serviceCharge: 0 })
+test('toRates turns the rate history into fractions', () => {
+  assert.deepEqual(toRates({ rates: [{ from: TODAY, annualRate: 40, serviceCharge: 10 }] }),
+    [{ from: TODAY, annualRate: 0.4, serviceCharge: 0.1 }])
+  assert.deepEqual(toRates({ rates: [{ from: TODAY, annualRate: 0, serviceCharge: 0 }] }),
+    [{ from: TODAY, annualRate: 0, serviceCharge: 0 }])
 })
 
 test('sanitizeGoal: positive numbers to the cent, everything else is "no goal"', () => {
@@ -106,8 +112,9 @@ test('v1: root capital becomes an opening deposit, old notes are cleaned', () =>
     transactions: [{ id: 1, type: 'deposit', amount: 200, date: '2026-09-01', description: 'Deposit' }],
   }
   const state = migrate(v1, TODAY)
-  assert.equal(state.version, emptyState().version)
-  assert.deepEqual(state.account, { name: 'My savings', annualRate: 40, serviceCharge: 10 })
+  assert.equal(state.version, emptyState(TODAY).version)
+  // The single old rate starts on the first transaction (here the opening deposit).
+  assert.deepEqual(state.account, { name: 'My savings', rates: [{ from: '2026-09-01', annualRate: 40, serviceCharge: 10 }] })
   assert.equal(state.transactions.length, 2)
   assert.deepEqual(
     { ...state.transactions[0], id: undefined },
@@ -176,8 +183,9 @@ test('BUG: duplicate transaction ids are made unique', { todo: true }, () => {
   assert.equal(new Set(state.transactions.map(t => t.id)).size, 3)
 })
 
-test('BUG: a blank or null saved rate falls back to the default, not 0%', { todo: true }, () => {
+// Fixed in S1-2 (was a todo).
+test('a blank or null saved rate falls back to the default, not 0%', () => {
   for (const blank of ['', null, '   ', [], false]) {
-    assert.equal(sanitizeAccount({ annualRate: blank }).annualRate, DEFAULT_ACCOUNT.annualRate, JSON.stringify(blank))
+    assert.equal(legacyRate({ annualRate: blank }).annualRate, DEFAULT_RATE.annualRate, JSON.stringify(blank))
   }
 })

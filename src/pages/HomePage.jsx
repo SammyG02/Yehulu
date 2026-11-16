@@ -95,10 +95,10 @@ function Stat({ label, value, tone = '', className = '' }) {
 }
 
 function Welcome() {
-  const { account, actions } = useSavings()
+  const { currentRate, actions } = useSavings()
   const steps = [
     { icon: ArrowDownLeft, title: 'Add your deposits', text: 'Past ones too. Yehulu works out the interest you\'ve already earned.' },
-    { icon: CalendarClock, title: 'Interest every day', text: `${account.annualRate}% a year minus a ${account.serviceCharge}% charge, added daily so it compounds.` },
+    { icon: CalendarClock, title: 'Interest every day', text: `${currentRate.annualRate}% a year minus a ${currentRate.serviceCharge}% charge, added daily so it compounds.` },
     { icon: ChartLine, title: 'See where it goes', text: 'Projections and a goal planner show when you\'ll reach your target.' },
   ]
   return (
@@ -124,7 +124,7 @@ function Welcome() {
                 Add your first deposit
               </button>
               <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/10 text-white hover:bg-white/20">
-                Set interest rate ({account.annualRate}%)
+                Set interest rate ({currentRate.annualRate}%)
               </ButtonLink>
             </div>
           </div>

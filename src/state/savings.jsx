@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useToday } from '../hooks/useToday.js'
 import { SavingsContext } from './contexts.js'
 import { formatDate, formatMoney } from '../lib/format.js'
-import { findNewOverdraft } from '../lib/interest.js'
-import { emptyState, loadState, newId, saveState, STORAGE_KEY, toRates } from '../lib/storage.js'
+import { findNewOverdraft, periodOn } from '../lib/interest.js'
+import { emptyState, loadState, newId, sanitizeRates, saveState, STORAGE_KEY, toRates } from '../lib/storage.js'
 
 /**
  * The single source of truth for the app: the account, its transactions, and
@@ -40,7 +40,10 @@ export function SavingsProvider({ children }) {
 
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
+  // The whole rate history (fractions) for the maths, and today's rate
+  // (percentages) for display.
   const rates = useMemo(() => toRates(data.account), [data.account])
+  const currentRate = useMemo(() => periodOn(data.account.rates, today), [data.account.rates, today])
 
   const showToast = useCallback((message, action = null) => {
     clearTimeout(toastTimer.current)
@@ -89,6 +92,25 @@ export function SavingsProvider({ children }) {
     return null
   }, [setData, overdraftError, showToast])
 
+  /**
+   * Replaces the rate history. If the new rates would push the history below
+   * zero where it wasn't before, asks first. Returns true if saved.
+   */
+  const changeRates = useCallback((nextRates, message = 'Rate saved') => {
+    const current = dataRef.current
+    const next = sanitizeRates(nextRates)
+    if (next.length === 0) return false
+    const overdraft = findNewOverdraft(
+      current.transactions, current.transactions, toRates(current.account), toRates({ rates: next }),
+    )
+    if (overdraft && !window.confirm(
+      `With this rate the balance goes below zero on ${formatDate(overdraft)}. Save anyway?`,
+    )) return false
+    setData(d => ({ ...d, account: { ...d.account, rates: next } }))
+    showToast(message)
+    return true
+  }, [setData, showToast])
+
   /** Returns true if deleted. */
   const deleteTransaction = useCallback((txn) => {
     const remaining = dataRef.current.transactions.filter(t => t.id !== txn.id)
@@ -109,10 +131,11 @@ export function SavingsProvider({ children }) {
     updateTransaction,
     deleteTransaction,
     updateGoal: (goal) => setData(d => ({ ...d, goal })),
-    updateAccount: (account) => {
-      setData(d => ({ ...d, account }))
-      showToast('Account saved')
+    renameAccount: (name) => {
+      setData(d => ({ ...d, account: { ...d.account, name } }))
+      showToast('Name saved')
     },
+    changeRates,
     replaceAll: (next) => {
       setData(next)
       showToast('Backup restored')
@@ -126,7 +149,7 @@ export function SavingsProvider({ children }) {
     closeComposer: () => setComposer(null),
     showToast,
     dismissToast,
-  }), [addTransaction, updateTransaction, deleteTransaction, setData, showToast, dismissToast])
+  }), [addTransaction, updateTransaction, deleteTransaction, changeRates, setData, showToast, dismissToast])
 
   const value = useMemo(() => ({
     today,
@@ -135,10 +158,11 @@ export function SavingsProvider({ children }) {
     goal: data.goal,
     transactions: data.transactions,
     rates,
+    currentRate,
     composer,
     toast,
     actions,
-  }), [today, data, rates, composer, toast, actions])
+  }), [today, data, rates, currentRate, composer, toast, actions])
 
   return <SavingsContext.Provider value={value}>{children}</SavingsContext.Provider>
 }

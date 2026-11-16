@@ -2,6 +2,7 @@ import { addDays, addMonths, daysBetween } from './dates.js'
 
 // How interest works (matches the Yehulu product):
 //   - The annual rate depends on the account type and is spread over 365 days.
+//     It can change over time: each day uses the rate in effect that day.
 //   - A service charge is taken from the interest, not from the balance.
 //   - Interest is credited every day, so yesterday's interest earns interest today.
 //   - Money starts earning the day after it is deposited. A day's interest is paid
@@ -11,11 +12,34 @@ import { addDays, addMonths, daysBetween } from './dates.js'
 const DAYS_IN_YEAR = 365
 const CENT = 0.005
 
-/** Rates are fractions: { annualRate: 0.40, serviceCharge: 0.10 }. */
+/**
+ * `rates` everywhere below is either one rate, { annualRate: 0.40, serviceCharge: 0.10 }
+ * (fractions), or a rate history: [{ from: 'YYYY-MM-DD', annualRate, serviceCharge }, ...].
+ */
+const asSchedule = (rates) => (Array.isArray(rates)
+  ? [...rates].sort((a, b) => a.from.localeCompare(b.from))
+  : [{ from: '0000-01-01', ...rates }])
+
+/**
+ * The period in effect on `date`: the latest one starting on or before it.
+ * Dates before the first period use the first period, so an old deposit
+ * added later still earns interest.
+ */
+export const periodOn = (rates, date) => {
+  const schedule = asSchedule(rates)
+  let current = schedule[0]
+  for (const period of schedule) {
+    if (period.from <= date) current = period
+    else break
+  }
+  return current
+}
+
+/** Net daily rate of one period, after the service charge. */
 export const dailyRate = ({ annualRate, serviceCharge }) =>
   (annualRate * (1 - serviceCharge)) / DAYS_IN_YEAR
 
-/** What a full year of daily crediting works out to. */
+/** What a full year of daily crediting works out to, for one period. */
 export const effectiveAnnualRate = (rates) => (1 + dailyRate(rates)) ** DAYS_IN_YEAR - 1
 
 /**
@@ -29,7 +53,9 @@ export const effectiveAnnualRate = (rates) => (1 + dailyRate(rates)) ** DAYS_IN_
  *   balance    end-of-day balance
  */
 export function simulateLedger({ transactions, rates, fromDate, endDate }) {
-  const rate = dailyRate(rates)
+  const schedule = asSchedule(rates)
+  const dailyRates = schedule.map(dailyRate)
+  let period = 0
   const flows = new Map()
   for (const txn of transactions) {
     const flow = flows.get(txn.date) ?? { deposits: 0, withdrawals: 0 }
@@ -43,6 +69,9 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
   const rows = []
 
   while (day <= endDate) {
+    // Days only move forward, so the current period can only move forward too.
+    while (period + 1 < schedule.length && schedule[period + 1].from <= day) period++
+    const rate = dailyRates[period]
     const { deposits, withdrawals } = flows.get(day) ?? { deposits: 0, withdrawals: 0 }
     const opening = balance
     const available = opening + deposits - withdrawals
@@ -106,20 +135,23 @@ export function findOverdraft(transactions, rates) {
 }
 
 /**
- * Checks a change to the transaction list (before -> after). Returns the first
- * date the change pushes the balance below zero where it wasn't before, or
- * makes an already-negative day worse. Returns null if the change is fine.
+ * Checks a change (before -> after). Returns the first date the change pushes
+ * the balance below zero where it wasn't before, or makes an already-negative
+ * day worse. Returns null if the change is fine.
  *
- * Unlike findOverdraft, an overdraft that already exists does not block
+ * The change can be to the transactions, to the rates (pass `afterRates`), or
+ * both. Unlike findOverdraft, an overdraft that already exists does not block
  * unrelated changes, so deposits are always accepted.
  */
-export function findNewOverdraft(before, after, rates) {
+export function findNewOverdraft(before, after, rates, afterRates = rates) {
   if (after.length === 0) return null
+  // Interest can't make a positive balance negative, so overdrafts can only
+  // start on a transaction date: checking up to the last one is enough.
   const dates = [...before, ...after].map(t => t.date).sort()
-  const range = { rates, fromDate: dates[0], endDate: dates[dates.length - 1] }
+  const range = { fromDate: dates[0], endDate: dates[dates.length - 1] }
   // Same range for both, so rows line up day by day.
-  const old = simulateLedger({ transactions: before, ...range })
-  const next = simulateLedger({ transactions: after, ...range })
+  const old = simulateLedger({ transactions: before, rates, ...range })
+  const next = simulateLedger({ transactions: after, rates: afterRates, ...range })
   for (let i = 0; i < next.length; i++) {
     const balance = next[i].available
     if (balance < -CENT && balance < old[i].available - CENT) return next[i].date

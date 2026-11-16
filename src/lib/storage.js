@@ -1,39 +1,83 @@
 import { isDateKey, toDateKey } from './dates.js'
 
 export const STORAGE_KEY = 'yehuluSavings'
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 // Rates are stored as percentages (40 means 40%) so they display exactly as typed.
-export const DEFAULT_ACCOUNT = { name: 'My savings', annualRate: 40, serviceCharge: 10 }
+export const DEFAULT_ACCOUNT_NAME = 'My savings'
+export const DEFAULT_RATE = { annualRate: 40, serviceCharge: 10 }
 
 export const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 export const EMPTY_GOAL = { target: null, monthly: 0 }
 
-export const emptyState = () => ({
+export const emptyState = (today = toDateKey(new Date())) => ({
   version: SCHEMA_VERSION,
-  account: { ...DEFAULT_ACCOUNT },
+  account: { name: DEFAULT_ACCOUNT_NAME, rates: [{ from: today, ...DEFAULT_RATE }] },
   goal: { ...EMPTY_GOAL },
   transactions: [],
 })
 
-/** Account rates as fractions, the form the interest maths uses. */
-export const toRates = (account) => ({
-  annualRate: account.annualRate / 100,
-  serviceCharge: account.serviceCharge / 100,
-})
-
-const clampPercent = (value, fallback) => {
-  const n = Number(value)
-  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : fallback
+/** A percentage from 0 to 100, or null. Blank, null and non-numbers are not 0%. */
+const toPercent = (value) => {
+  let n
+  if (typeof value === 'number') n = value
+  else if (typeof value === 'string' && value.trim() !== '') n = Number(value)
+  else return null
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null
 }
 
-export const sanitizeAccount = (account) => ({
-  name: String(account?.name ?? '').trim().slice(0, 40) || DEFAULT_ACCOUNT.name,
-  annualRate: clampPercent(account?.annualRate, DEFAULT_ACCOUNT.annualRate),
-  serviceCharge: clampPercent(account?.serviceCharge, DEFAULT_ACCOUNT.serviceCharge),
+/** One rate period: { from, annualRate, serviceCharge }, or null if any part is invalid. */
+export const sanitizeRate = (period) => {
+  const annualRate = toPercent(period?.annualRate)
+  const serviceCharge = toPercent(period?.serviceCharge)
+  if (!isDateKey(period?.from) || annualRate === null || serviceCharge === null) return null
+  return { from: period.from, annualRate, serviceCharge }
+}
+
+/**
+ * Valid periods sorted by start date. If two start on the same day, the one
+ * later in the list wins, so "add a period" can simply append.
+ */
+export const sanitizeRates = (list) => {
+  const byDate = new Map()
+  for (const period of Array.isArray(list) ? list : []) {
+    const clean = sanitizeRate(period)
+    if (clean) byDate.set(clean.from, clean)
+  }
+  return [...byDate.values()].sort((a, b) => a.from.localeCompare(b.from))
+}
+
+/**
+ * The account: a name and its rate history. `defaultFrom` dates the single
+ * period created from older saves (v1/v2 had one rate and no history) or when
+ * the saved history is missing or broken.
+ */
+export const sanitizeAccount = (account, defaultFrom) => {
+  let rates = sanitizeRates(account?.rates)
+  if (rates.length === 0) {
+    rates = [{
+      from: defaultFrom,
+      annualRate: toPercent(account?.annualRate) ?? DEFAULT_RATE.annualRate,
+      serviceCharge: toPercent(account?.serviceCharge) ?? DEFAULT_RATE.serviceCharge,
+    }]
+  }
+  return {
+    name: String(account?.name ?? '').trim().slice(0, 40) || DEFAULT_ACCOUNT_NAME,
+    rates,
+  }
+}
+
+/** One period's percentages as fractions, the form the interest maths uses. */
+export const toFraction = ({ from, annualRate, serviceCharge }) => ({
+  from,
+  annualRate: annualRate / 100,
+  serviceCharge: serviceCharge / 100,
 })
+
+/** The account's whole rate history as fractions, for simulateLedger and friends. */
+export const toRates = (account) => account.rates.map(toFraction)
 
 /** Savings goal: a target balance and an optional monthly top-up. */
 export const sanitizeGoal = (goal) => {
@@ -62,11 +106,13 @@ const sanitizeTransaction = (txn) => {
 
 /**
  * Turns anything previously saved (or imported) into the current shape.
- * Version 1 had a separate "root capital" with no date. It becomes an
- * "Opening balance" deposit on the first transaction's date (or today).
+ * - v1 had a separate "root capital" with no date. It becomes an "Opening
+ *   balance" deposit on the first transaction's date (or today).
+ * - v1 and v2 had a single rate. It becomes a rate history with one period
+ *   starting on the first transaction's date (or today).
  */
 export function migrate(raw, today) {
-  if (!raw || typeof raw !== 'object') return emptyState()
+  if (!raw || typeof raw !== 'object') return emptyState(today)
 
   const transactions = (Array.isArray(raw.transactions) ? raw.transactions : [])
     .map(sanitizeTransaction)
@@ -82,9 +128,11 @@ export function migrate(raw, today) {
     }
   }
 
+  // Older saves had one rate: it applies from the first transaction (or today).
+  const firstDate = transactions.map(t => t.date).sort()[0] ?? today
   return {
     version: SCHEMA_VERSION,
-    account: sanitizeAccount(raw.account),
+    account: sanitizeAccount(raw.account, firstDate),
     goal: sanitizeGoal(raw.goal),
     transactions,
   }

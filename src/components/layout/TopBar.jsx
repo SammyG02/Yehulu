@@ -7,7 +7,7 @@ import { NAV_ITEMS } from './navigation.js'
 
 /** Sticky top bar. Phones get the logo only; md and up get the full section nav. */
 export function TopBar() {
-  const { account, actions } = useSavings()
+  const { account, currentRate, actions } = useSavings()
 
   return (
     <header className="sticky top-0 z-30 border-b border-line/70 bg-canvas/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
@@ -36,7 +36,7 @@ export function TopBar() {
 
         <div className="flex items-center gap-2">
           <Link to="/settings/logic" className="max-w-[10rem] truncate rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-ink md:hidden">
-            {account.annualRate}% · {account.name}
+            {currentRate.annualRate}% · {account.name}
           </Link>
           <Button className="hidden md:inline-flex" onClick={() => actions.openComposer()}>
             <Plus className="h-4 w-4" aria-hidden="true" /> New transaction

@@ -15,7 +15,7 @@ export const SETTINGS_SECTIONS = [
     label: 'Logic',
     icon: Calculator,
     Component: LogicSettings,
-    summary: ({ account }) => `${account.annualRate}% a year · ${account.serviceCharge}% charge`,
+    summary: ({ currentRate }) => `${currentRate.annualRate}% a year · ${currentRate.serviceCharge}% charge`,
   },
   {
     path: 'theme',
