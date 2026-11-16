@@ -1,110 +1,64 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { TrendingUp, Wallet, History, Plus, Calendar, ArrowUpRight, ArrowDownRight, BarChart3, Clock } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { EFFECTIVE_ANNUAL_RATE, simulateLedger, toDateKey, parseDateKey, addDays } from './lib/interest'
 
-const calculateDailyInterest = (principal) => {
-  const annualRate = 0.40
-  const serviceCharge = 0.10
-  const daysInYear = 365
+const STORAGE_KEY = 'yehuluSavings'
 
-  const annualInterest = principal * annualRate
-  const dailyInterestBeforeCharge = annualInterest / daysInYear
-  const serviceChargeAmount = dailyInterestBeforeCharge * serviceCharge
+const formatMoney = (value, decimals = 2) =>
+  value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 
-  return dailyInterestBeforeCharge - serviceChargeAmount
-}
-
-const calculateCompoundGrowth = (initialAmount, days, transactions = []) => {
-  let currentBalance = initialAmount
-  const dailyData = []
-
-  for (let day = 0; day <= days; day++) {
-    const date = new Date()
-    date.setDate(date.getDate() + day)
-
-    let dailyDeposits = 0
-    let dailyWithdrawals = 0
-
-    if (day > 0 && transactions.length > 0) {
-      for (const txn of transactions) {
-        const txnDate = new Date(txn.date)
-        if (txnDate.toDateString() === date.toDateString()) {
-          if (txn.type === 'deposit') {
-            currentBalance += txn.amount
-            dailyDeposits += txn.amount
-          } else {
-            currentBalance -= txn.amount
-            dailyWithdrawals += txn.amount
-          }
-        }
-      }
-    }
-
-    const balanceBeforeInterest = currentBalance
-    const dailyInterest = calculateDailyInterest(currentBalance)
-    currentBalance += dailyInterest
-
-    dailyData.push({
-      day,
-      date: date.toISOString().split('T')[0],
-      balance: currentBalance,
-      balanceBeforeInterest,
-      deposits: dailyDeposits,
-      withdrawals: dailyWithdrawals,
-      dailyInterest,
-    })
+// Read once, synchronously, on first render. Loading in an effect let the save
+// effect overwrite stored data with empty state under React StrictMode.
+const loadSavedState = () => {
+  const today = toDateKey(new Date())
+  let saved = {}
+  try {
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? {}
+  } catch {
+    saved = {}
   }
-
-  return dailyData
+  const transactions = Array.isArray(saved.transactions) ? saved.transactions : []
+  // Older saves had no start date for the starting balance: assume it was there
+  // from the first transaction (or today if there are none).
+  const earliestTxn = transactions.map(t => t.date).sort()[0]
+  return {
+    initialBalance: saved.initialBalance ?? 0,
+    startDate: saved.startDate ?? earliestTxn ?? today,
+    transactions,
+  }
 }
 
 function App() {
-  const [initialBalance, setInitialBalance] = useState(0)
-  const [currentBalance, setCurrentBalance] = useState(0)
-  const [transactions, setTransactions] = useState([])
+  const [saved] = useState(loadSavedState)
+  const [initialBalance, setInitialBalance] = useState(saved.initialBalance)
+  const [startDate, setStartDate] = useState(saved.startDate)
+  const [transactions, setTransactions] = useState(saved.transactions)
   const [daysToProject, setDaysToProject] = useState(30)
-  const [projectionData, setProjectionData] = useState([])
+
+  const today = toDateKey(new Date())
 
   const [txnAmount, setTxnAmount] = useState('')
   const [txnType, setTxnType] = useState('deposit')
-  const [txnDate, setTxnDate] = useState(new Date().toISOString().split('T')[0])
+  const [txnDate, setTxnDate] = useState(today)
   const [txnDescription, setTxnDescription] = useState('')
 
   useEffect(() => {
-    const savedData = localStorage.getItem('yehuluSavings')
-    if (savedData) {
-      const { initialBalance: savedInitial, transactions: savedTxns } = JSON.parse(savedData)
-      setInitialBalance(savedInitial)
-      setTransactions(savedTxns)
-    }
-  }, [])
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialBalance, startDate, transactions }))
+  }, [initialBalance, startDate, transactions])
 
-  useEffect(() => {
-    let balance = initialBalance || 0
-    const sortedTxns = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date))
-    const today = new Date()
+  // One continuous day-by-day ledger: past days give today's balance, and the
+  // next `daysToProject` days (today included) are the projection.
+  const ledger = useMemo(() => simulateLedger({
+    startingBalance: Number(initialBalance) || 0,
+    startDate,
+    transactions,
+    fromDate: today,
+    endDate: addDays(today, daysToProject - 1),
+  }), [initialBalance, startDate, transactions, today, daysToProject])
 
-    sortedTxns.forEach(txn => {
-      const txnDate = new Date(txn.date)
-      const daysDiff = Math.floor((today - txnDate) / (1000 * 60 * 60 * 24))
-
-      if (daysDiff >= 0) {
-        balance += txn.type === 'deposit' ? txn.amount : -txn.amount
-        for (let d = 0; d < daysDiff; d++) {
-          balance += calculateDailyInterest(balance)
-        }
-      }
-    })
-
-    setCurrentBalance(balance)
-    localStorage.setItem('yehuluSavings', JSON.stringify({ initialBalance, transactions }))
-  }, [initialBalance, transactions])
-
-  useEffect(() => {
-    const data = calculateCompoundGrowth(currentBalance, daysToProject, transactions)
-    setProjectionData(data)
-  }, [currentBalance, daysToProject, transactions])
+  const projectionData = useMemo(() => ledger.filter(row => row.date >= today), [ledger, today])
 
   const handleTransaction = (e) => {
     e.preventDefault()
@@ -127,9 +81,12 @@ function App() {
     setTransactions(transactions.filter(t => t.id !== id))
   }
 
-  const currentDailyInterest = calculateDailyInterest(currentBalance)
-  const totalInterestEarned = projectionData.reduce((acc, curr) => acc + curr.dailyInterest, 0)
-  const finalProjectedBalance = projectionData.length > 0 ? projectionData[projectionData.length - 1].balance : currentBalance;
+  // Today's balance includes today's transactions; today's interest is credited at day end.
+  const todayRow = projectionData[0]
+  const currentBalance = todayRow.balanceBeforeInterest
+  const currentDailyInterest = todayRow.dailyInterest
+  const totalInterestEarned = projectionData.reduce((acc, row) => acc + row.dailyInterest, 0)
+  const finalProjectedBalance = projectionData[projectionData.length - 1].balance
 
   return (
     <div className="flex h-screen w-full bg-slate-900 text-slate-200 overflow-hidden font-sans">
@@ -145,7 +102,7 @@ function App() {
             </div>
             <h1 className="text-2xl font-bold text-white tracking-tight">Yehulu <span className="text-blue-400">Digital</span></h1>
           </div>
-          <p className="text-slate-400 text-sm">Compound Growth Dashboard • 40% APY</p>
+          <p className="text-slate-400 text-sm">40% p.a. • 10% fee on interest • compounds daily ≈ {(EFFECTIVE_ANNUAL_RATE * 100).toFixed(1)}%/yr</p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
@@ -157,7 +114,7 @@ function App() {
             </h2>
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <span className="text-slate-400 font-semibold">฿</span>
+                <span className="text-slate-400 font-semibold">Br</span>
               </div>
               <input
                 type="number"
@@ -166,6 +123,14 @@ function App() {
                 className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-4 text-xl font-bold focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-inner"
               />
             </div>
+            <label className="block text-xs font-medium text-slate-400 mt-3 mb-1">Held since</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => e.target.value && setStartDate(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              style={{ colorScheme: 'dark' }}
+            />
           </div>
 
           {/* Projection Slider */}
@@ -221,14 +186,14 @@ function App() {
                   <label className="block text-xs font-medium text-slate-400 mb-1">Amount (Birr)</label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <span className="text-slate-500 font-medium">฿</span>
+                      <span className="text-slate-500 font-medium">Br</span>
                     </div>
                     <input
                       type="number"
                       value={txnAmount}
                       onChange={(e) => setTxnAmount(e.target.value)}
                       placeholder="0.00"
-                      className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-8 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     />
                   </div>
@@ -282,9 +247,9 @@ function App() {
             <div className="absolute w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -top-10 -right-10 group-hover:bg-blue-500/20 transition-all"></div>
             <p className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2">Available Balance</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-2xl text-slate-300">฿</span>
+              <span className="text-2xl text-slate-300">Br</span>
               <span className="text-4xl font-black text-white tracking-tight">
-                {currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatMoney(currentBalance)}
               </span>
             </div>
           </div>
@@ -294,9 +259,9 @@ function App() {
             <div className="absolute w-32 h-32 bg-green-500/10 rounded-full blur-2xl -top-10 -right-10 group-hover:bg-green-500/20 transition-all"></div>
             <p className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2">Today's Yield</p>
             <div className="flex items-baseline gap-1 text-green-400">
-              <span className="text-2xl">+฿</span>
+              <span className="text-2xl">+Br</span>
               <span className="text-4xl font-black tracking-tight">
-                {currentDailyInterest.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatMoney(currentDailyInterest)}
               </span>
             </div>
           </div>
@@ -306,13 +271,13 @@ function App() {
             <div className="absolute w-32 h-32 bg-purple-500/10 rounded-full blur-2xl -top-10 -right-10 group-hover:bg-purple-500/20 transition-all"></div>
             <p className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2">Target ({daysToProject}d)</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-2xl text-slate-300">฿</span>
+              <span className="text-2xl text-slate-300">Br</span>
               <span className="text-4xl font-black text-white tracking-tight">
-                {finalProjectedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatMoney(finalProjectedBalance)}
               </span>
             </div>
             <p className="text-sm font-medium text-purple-400 mt-2">
-              + ฿{totalInterestEarned.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
+              + Br {formatMoney(totalInterestEarned)} earned
             </p>
           </div>
         </div>
@@ -340,7 +305,7 @@ function App() {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 12, fill: '#64748b' }}
-                  tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  tickFormatter={(value) => parseDateKey(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   minTickGap={40}
                   dy={10}
                 />
@@ -348,7 +313,7 @@ function App() {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 12, fill: '#64748b' }}
-                  tickFormatter={(value) => `฿${(value / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })}k`}
+                  tickFormatter={(value) => `Br ${(value / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })}k`}
                   dx={-10}
                   domain={['auto', 'auto']}
                 />
@@ -358,15 +323,15 @@ function App() {
                     if (active && payload && payload.length) {
                       return (
                         <div className="bg-slate-900/90 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-700">
-                          <p className="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wide">{new Date(label).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                          <p className="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wide">{parseDateKey(label).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
                           <p className="text-2xl font-bold text-white mb-1">
-                            ฿{payload[0].value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            Br {formatMoney(payload[0].value)}
                           </p>
-                          {payload[0].payload.dailyInterest && (
+                          {payload[0].payload.dailyInterest > 0 && (
                             <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-700">
                               <span className="w-2 h-2 rounded-full bg-green-400"></span>
                               <p className="text-sm font-medium text-green-400">
-                                +฿{payload[0].payload.dailyInterest.toLocaleString()} yield
+                                +Br {formatMoney(payload[0].payload.dailyInterest)} yield
                               </p>
                             </div>
                           )}
@@ -415,19 +380,19 @@ function App() {
                     return (
                       <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
                         <td className="px-6 py-4 text-slate-300 whitespace-nowrap">
-                          {new Date(data.date).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })}
+                          {parseDateKey(data.date).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })}
                         </td>
                         <td className="px-6 py-4 text-slate-400 text-right">
-                          {data.balanceBeforeInterest.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          {formatMoney(data.opening, 0)}
                         </td>
                         <td className={`px-6 py-4 text-right font-medium ${flow > 0 ? 'text-green-400' : flow < 0 ? 'text-red-400' : 'text-slate-600'}`}>
                           {flow > 0 ? '+' : ''}{flow !== 0 ? flow.toLocaleString('en-US') : '-'}
                         </td>
                         <td className="px-6 py-4 text-blue-400 text-right font-medium">
-                          +{data.dailyInterest.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          +{formatMoney(data.dailyInterest, 0)}
                         </td>
                         <td className="px-6 py-4 text-white font-bold text-right">
-                          {data.balance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          {formatMoney(data.balance, 0)}
                         </td>
                       </tr>
                     )
@@ -463,10 +428,10 @@ function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/50">
-                    {[...transactions].sort((a, b) => new Date(b.date) - new Date(a.date)).map((txn) => (
+                    {[...transactions].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).map((txn) => (
                       <tr key={txn.id} className="hover:bg-slate-700/30 transition-colors">
                         <td className="px-6 py-4 text-slate-300 whitespace-nowrap">
-                          {new Date(txn.date).toLocaleDateString()}
+                          {parseDateKey(txn.date).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold ${txn.type === 'deposit' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
@@ -477,7 +442,7 @@ function App() {
                         </td>
                         <td className={`px-6 py-4 text-right font-bold ${txn.type === 'deposit' ? 'text-green-400' : 'text-red-400'
                           }`}>
-                          {txn.type === 'deposit' ? '+' : '-'}฿{txn.amount.toLocaleString()}
+                          {txn.type === 'deposit' ? '+' : '-'}Br {txn.amount.toLocaleString()}
                         </td>
                         <td className="px-6 py-4 text-center">
                           <button
