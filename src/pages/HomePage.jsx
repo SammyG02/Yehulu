@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank } from 'lucide-react'
+import { Link } from 'react-router'
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
@@ -9,7 +10,7 @@ import { ButtonLink } from '../components/ui/Button.jsx'
 import { Card, CardHeader } from '../components/ui/Card.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, greeting } from '../lib/format.js'
-import { summarize } from '../lib/interest.js'
+import { findOverdraft, summarize } from '../lib/interest.js'
 import { useLedger, useSavings } from '../state/savings.jsx'
 
 // Black card with brand-green accents, echoing the black wordmark and green mark.
@@ -63,6 +64,21 @@ function BalanceCard({ summary }) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Shown when the history goes below zero somewhere, e.g. after deleting a deposit. */
+function OverdraftBanner({ date, today }) {
+  return (
+    <div role="status" className="mb-3 flex items-start gap-3 rounded-2xl border border-neg/25 bg-neg-soft px-4 py-3 text-sm md:mb-5">
+      <TriangleAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-neg" aria-hidden="true" />
+      <p className="min-w-0 flex-1">
+        Your balance {date <= today ? 'went' : 'will go'} below zero on{' '}
+        <span className="font-bold">{formatDate(date)}</span>.{' '}
+        <span className="text-muted">A deposit may be missing, or an amount or date is wrong.</span>
+      </p>
+      <Link to="/activity" className="flex-shrink-0 font-semibold text-neg hover:underline">Review</Link>
     </div>
   )
 }
@@ -136,8 +152,9 @@ function Welcome() {
 
 export default function HomePage() {
   usePageTitle('Home')
-  const { account, transactions, today } = useSavings()
+  const { account, transactions, rates, today } = useSavings()
   const ledger = useLedger(30)
+  const overdraft = useMemo(() => findOverdraft(transactions, rates), [transactions, rates])
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
   const recent = useMemo(
     () => [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
@@ -149,6 +166,7 @@ export default function HomePage() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} />
+      {overdraft && <OverdraftBanner date={overdraft} today={today} />}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">

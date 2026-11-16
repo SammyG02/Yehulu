@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useToday } from '../hooks/useToday.js'
 import { addDays } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
-import { findOverdraft, simulateLedger } from '../lib/interest.js'
+import { findNewOverdraft, simulateLedger } from '../lib/interest.js'
 import { emptyState, loadState, newId, saveState, STORAGE_KEY, toRates } from '../lib/storage.js'
 
 /**
@@ -16,7 +16,16 @@ export function SavingsProvider({ children }) {
   const today = useToday()
   // Read synchronously on first render so a save can never overwrite stored
   // data with an empty initial state.
-  const [data, setData] = useState(loadState)
+  const [data, setDataState] = useState(loadState)
+  // Always holds the latest data, even between a change and the next render
+  // (e.g. right after another tab syncs). Validation reads from here, never
+  // from a value captured at render time.
+  const dataRef = useRef(data)
+  const setData = useCallback((update) => {
+    const next = typeof update === 'function' ? update(dataRef.current) : update
+    dataRef.current = next
+    setDataState(next)
+  }, [])
   const [composer, setComposer] = useState(null)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
@@ -28,7 +37,7 @@ export function SavingsProvider({ children }) {
     const onStorage = (e) => { if (e.key === STORAGE_KEY) setData(loadState()) }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  }, [setData])
 
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
@@ -45,39 +54,48 @@ export function SavingsProvider({ children }) {
     setToast(null)
   }, [])
 
-  const overdraftError = useCallback((transactions) => {
-    const date = findOverdraft(transactions, rates)
+  /**
+   * Checks a change against the latest data. Only a change that creates or
+   * deepens an overdraft is rejected; an overdraft that already exists in the
+   * history doesn't block anything else.
+   */
+  const newOverdraft = (nextTransactions) => {
+    const current = dataRef.current
+    return findNewOverdraft(current.transactions, nextTransactions, toRates(current.account))
+  }
+  const overdraftError = (nextTransactions) => {
+    const date = newOverdraft(nextTransactions)
     return date ? `Not enough money. The balance would go below zero on ${formatDate(date)}.` : null
-  }, [rates])
+  }
 
   const label = (txn) => `${txn.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ${formatMoney(txn.amount)}`
 
   /** Returns an error message, or null on success. */
   const addTransaction = useCallback((txn) => {
     const record = { id: newId(), ...txn }
-    const error = overdraftError([...data.transactions, record])
+    const error = overdraftError([...dataRef.current.transactions, record])
     if (error) return error
     setData(d => ({ ...d, transactions: [...d.transactions, record] }))
     showToast(`${label(txn)} added`)
     return null
-  }, [data.transactions, overdraftError, showToast])
+  }, [setData, showToast])
 
   /** Returns an error message, or null on success. */
   const updateTransaction = useCallback((id, changes) => {
-    const next = data.transactions.map(t => (t.id === id ? { ...t, ...changes } : t))
-    const error = overdraftError(next)
+    const apply = (list) => list.map(t => (t.id === id ? { ...t, ...changes } : t))
+    const error = overdraftError(apply(dataRef.current.transactions))
     if (error) return error
-    setData(d => ({ ...d, transactions: next }))
+    setData(d => ({ ...d, transactions: apply(d.transactions) }))
     showToast('Transaction updated')
     return null
-  }, [data.transactions, overdraftError, showToast])
+  }, [setData, showToast])
 
   /** Returns true if deleted. */
   const deleteTransaction = useCallback((txn) => {
-    const remaining = data.transactions.filter(t => t.id !== txn.id)
-    const overdraft = findOverdraft(remaining, rates)
+    const remaining = dataRef.current.transactions.filter(t => t.id !== txn.id)
+    const overdraft = newOverdraft(remaining)
     if (overdraft && !window.confirm(
-      `Without this deposit the balance goes below zero on ${formatDate(overdraft)}. Delete it anyway?`,
+      `Deleting this leaves the balance below zero on ${formatDate(overdraft)}. Delete it anyway?`,
     )) return false
     setData(d => ({ ...d, transactions: d.transactions.filter(t => t.id !== txn.id) }))
     showToast(`${label(txn)} deleted`, {
@@ -85,7 +103,7 @@ export function SavingsProvider({ children }) {
       onClick: () => setData(d => ({ ...d, transactions: [...d.transactions, txn] })),
     })
     return true
-  }, [data.transactions, rates, showToast])
+  }, [setData, showToast])
 
   const actions = useMemo(() => ({
     addTransaction,

@@ -106,6 +106,28 @@ export function findOverdraft(transactions, rates) {
 }
 
 /**
+ * Checks a change to the transaction list (before -> after). Returns the first
+ * date the change pushes the balance below zero where it wasn't before, or
+ * makes an already-negative day worse. Returns null if the change is fine.
+ *
+ * Unlike findOverdraft, an overdraft that already exists does not block
+ * unrelated changes, so deposits are always accepted.
+ */
+export function findNewOverdraft(before, after, rates) {
+  if (after.length === 0) return null
+  const dates = [...before, ...after].map(t => t.date).sort()
+  const range = { rates, fromDate: dates[0], endDate: dates[dates.length - 1] }
+  // Same range for both, so rows line up day by day.
+  const old = simulateLedger({ transactions: before, ...range })
+  const next = simulateLedger({ transactions: after, ...range })
+  for (let i = 0; i < next.length; i++) {
+    const balance = next[i].available
+    if (balance < -CENT && balance < old[i].available - CENT) return next[i].date
+  }
+  return null
+}
+
+/**
  * Savings goal planner: when does the balance first reach `target`?
  * Optionally adds `monthlyDeposit` on today's day-of-month, starting next month.
  * Returns null if the goal isn't reached within `maxYears`.
