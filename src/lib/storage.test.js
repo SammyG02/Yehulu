@@ -100,6 +100,24 @@ test('sanitizeGoal: positive numbers to the cent, everything else is "no goal"',
 
 // ---- old saves -------------------------------------------------------------
 
+test('v1: root capital becomes an opening deposit, old notes are cleaned', () => {
+  const v1 = {
+    initialBalance: 5000,
+    transactions: [{ id: 1, type: 'deposit', amount: 200, date: '2026-09-01', description: 'Deposit' }],
+  }
+  const state = migrate(v1, TODAY)
+  assert.equal(state.version, emptyState().version)
+  assert.deepEqual(state.account, { name: 'My savings', annualRate: 40, serviceCharge: 10 })
+  assert.equal(state.transactions.length, 2)
+  assert.deepEqual(
+    { ...state.transactions[0], id: undefined },
+    { id: undefined, type: 'deposit', amount: 5000, date: '2026-09-01', note: 'Opening balance' },
+  )
+  assert.equal(state.transactions[1].note, '')
+  assert.equal(state.transactions[1].id, '1')
+  assert.deepEqual(state.goal, { target: null, monthly: 0 })
+})
+
 test('v1: opening balance uses startDate, else the first transaction, else today', () => {
   const opening = (raw) => migrate(raw, TODAY).transactions.find(t => t.note === 'Opening balance')
 
