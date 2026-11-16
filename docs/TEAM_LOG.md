@@ -179,3 +179,46 @@ Tickets and their "Done when" lines are in [ROADMAP.md](ROADMAP.md).
   - Added `globals` (dev-only, part of the standard Vite set) for browser and Node globals.
 - **Blocked:** none. The user can veto ESLint (`npm uninstall eslint @eslint/js eslint-plugin-react-hooks eslint-plugin-react-refresh globals` and delete eslint.config.js).
 - **Next:** S1-2 once QA passes S1-1b. Add `npm run lint` to the definition of done.
+
+### 2026-11-16 · PM
+- **Done:** S1-1b closed `[x]` after QA's PASS. Added QA's 3 side findings plus a cross-tab test gap to S1-5. Decision on "You put in": keep the true number and relabel it, don't clamp.
+- **Sprint 1 status:** S1-1 `[~]` (user push), S1-1b `[x]`, S1-6 in progress (Developer), S1-2 next, S1-3 blocked on 2 product-owner answers, S1-4 and S1-5 queued.
+
+### 2026-11-16 · PM
+- **Done:** S1-6 closed `[x]` (894cb19). `npm run lint` is now in the definition of done. Sprint 1 test and lint foundations are complete.
+- **Follow-up:** remove the `^[A-Z]` ignore pattern from no-unused-vars, because it hides unused imports. Verified as safe to remove.
+- **Next:** Developer on S1-2 (rate history). QA writes the S1-2 plan in its worktree. S1-5 already includes the Developer's proposed toast fix (dismiss the toast when the composer opens), which is approved.
+
+### 2026-11-16 · Developer
+- **Done:** S1-2, in commit "Keep past interest when the rate changes" on `redesign`. A separate earlier commit, "Make lint catch unused imports", removed `varsIgnorePattern`; lint still passes and an unused import is now flagged.
+  - **Schema v3:** `account = { name, rates: [{ from, annualRate, serviceCharge }] }` (percentages), sorted, and a duplicate `from` keeps the last one.
+    - v1 and v2 migrate to one period starting on the first transaction (or today).
+    - A missing or corrupt history falls back to one period: the legacy flat fields, else 40/10. It is never empty.
+    - Restore goes through the same migration, so v2 backups load as v3.
+  - **interest.js:**
+    - `rates` may be one rate or a history, and `periodOn(rates, date)` gives the rate in effect on a day.
+    - `simulateLedger` uses the rate in effect each day. `from` is inclusive, and days before the first period use the first period.
+    - `findNewOverdraft(before, after, rates, afterRates)` now also checks rate changes.
+  - **State:**
+    - Context exposes `currentRate` (today's period, as percentages).
+    - New actions `changeRates` (confirms if new rates would overdraw history) and `renameAccount`; `updateAccount` is removed.
+  - **Settings → Logic:**
+    - Name card.
+    - "Rate today" with per-day and real-yearly figures.
+    - "Change rate" form (date defaults to today) that says whether past interest is kept or recalculated. Past-affecting saves confirm first.
+    - Rate history list with date ranges, Current/Scheduled tags, and edit/delete. The last period can't be deleted.
+    - The top-bar chip, Settings summary, Home welcome and Growth all use today's rate.
+  - **Tests:** new `src/lib/rates.test.js` covers QA S1-2 plan items 1–14.
+    - I updated QA's storage.test.js for the v3 account shape (same checks).
+    - The "blank or null rate" todo is fixed and is now a real test: whitespace, arrays and false no longer count as 0%.
+    - npm test: 73 tests, 69 pass, 4 todo, 0 fail. Lint is clean and the build is OK.
+  - **Browser** (own build on port 4391, 360px and desktop, light and dark):
+    - A v2 save migrated to v3.
+    - Changing the rate from today left Home "Interest earned" (Br 1,140.98) and "This month" (Br 269.20) identical to the cent.
+    - The chip and Growth switched to the new rate.
+    - A past-dated change asked for confirmation, and cancelling changed nothing.
+    - No console errors.
+- **Differs from ticket:** none of substance. Editing and deleting periods use `window.confirm` for now; S1-5 replaces those dialogs.
+- **Note for QA:** port 4174 is QA's preview server. My first browser run hit it by accident; I now use port 4391.
+- **Blocked:** none. Push/merge still waits on the user.
+- **Next:** QA verifies S1-2. Then S1-3 (rounding is still undecided; I'll keep it behind one constant).

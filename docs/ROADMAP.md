@@ -13,7 +13,7 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 
 ## Definition of done (every ticket)
 
-- `npm test` and `npm run build` pass.
+- `npm test`, `npm run lint` (no warnings) and `npm run build` pass.
 - New logic lives in `src/lib/` as pure functions, with tests in `src/lib/*.test.js`. Add those test files to the `test` script.
 - Every data change goes through the actions in `src/state/savings.jsx`.
 - If the saved shape changes, bump `SCHEMA_VERSION` and add a migration in `storage.js`, with a test that loads a v2 save.
@@ -29,7 +29,7 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - Confirm that deleting `fix.js` is intended.
 - **Done when:** `git status` is clean and `main` builds on Vercel.
 
-### [ ] S1-1b Overdraft lock-out (P0, found by QA, before S1-2)
+### [x] S1-1b Overdraft lock-out (P0, found by QA, before S1-2)
 - **Bug:** `addTransaction` and `updateTransaction` run `findOverdraft` over the whole history. If history already contains an overdraft (for example after "Delete anyway"), every new transaction is rejected, even a large later deposit. Reproduced by the PM.
 - **Fix:** reject only a change that creates a new overdraft or moves the first one earlier. Compare `findOverdraft(before)` with `findOverdraft(after)`. Put this in a pure helper in `interest.js`. When history is already overdrawn, show a warning banner on Home with the date, linking to Activity.
 - **Done when:** an existing overdraft no longer blocks unrelated adds, the change is covered by a regression test, and the helper is written so S1-2 can extend it to rate schedules. That extension itself is S1-2 scope.
@@ -69,9 +69,13 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - **Restore bugs (QA's 3 todo tests):** an amount of `"1e400"` becomes Infinity, duplicate ids are kept, and a blank rate loads as 0% when it should use the default. Turn the todo tests into passing tests.
 - **Date range:** limit transaction dates to `2000-01-01` up to today + 5 years, in both the composer (`min`/`max` plus validation) and `sanitizeTransaction`. A typo year like 1026 currently makes the app simulate 1,000 years on every page.
 - **Goal planner copy bugs:** see QA's entry in TEAM_LOG, including "today sooner" (the goal is reached the same day either way).
+- **A toast covers the composer's error message on phones** for up to 6 seconds (QA). Raise the composer above toasts, or don't show a toast while the sheet is open.
+- **"You put in" goes negative** when withdrawals exceed deposits, i.e. interest was withdrawn (QA). Decision: keep the true number, rename the label to "Net put in", and when it's negative add a small "includes interest withdrawn" line. Don't clamp it to 0, because that hides real data.
+- **Square focus outline on the composer amount field** (QA, cosmetic). Match the rounded focus style.
+- **Cross-tab sync** has never been tested. QA should add a two-tab check when it verifies S1-5.
 - **`formatAmount(-0.3, { whole: true })` returns "-0".** It should return "0". QA has a todo test for it.
 
-### [ ] S1-6 Lint + test coverage (P1, ESLint approved by the CEO as dev-only; the user can veto)
+### [x] S1-6 Lint + test coverage (P1, ESLint approved by the CEO as dev-only; the user can veto)
 - **ESLint:** flat config with `eslint`, `@eslint/js`, `eslint-plugin-react-hooks` and `eslint-plugin-react-refresh` (the standard Vite React set). Rules: recommended plus `react-hooks/exhaustive-deps` as an error. No Prettier; keep the current style.
 - Add `npm run lint`, and make it part of the definition of done once it's clean.
 - ~~Tests: split~~ **Done by QA:** 4 files (interest, storage, dates, format), 46 tests, with 5 todos that are tracked S1-5 bugs. Using separate dates/format files instead of one combined file was accepted as better. Remaining: ESLint only.
@@ -117,4 +121,5 @@ Friends share one account and each person earns on their own deposits (see the p
 |---|---|---|---|
 | 2026-11-16 | Baseline | — | 14/14 tests, build clean, restructure uncommitted |
 | 2026-11-16 | S1-1 | PASS (partial) | 5 logical commits, clean tree, build OK, tests 35 pass / 3 todo. **Better than planned:** committed on a `redesign` branch instead of directly on main, which is safer. **Open:** merge to main and check the Vercel build (needs the user's OK). Deleting fix.js was accepted as intended. |
-| 2026-11-16 | S1-1b | PASS (PM), QA pending | `findNewOverdraft` plus 14 regression tests, including the PM's reproduction and QA's cases. Tests 55 pass / 5 todo, build OK. **Better than planned:** it also catches deepening an existing overdraft, and it fixed S1-5's stale-state bug with a `dataRef`, since that was the same code path. **Watch:** `overdraftError`/`newOverdraft` aren't in the useCallback dependency lists; it's safe because they read the ref, but ESLint will flag them in S1-6, so fix them properly rather than disabling the rule. |
+| 2026-11-16 | S1-1b | PASS (PM + QA) | `findNewOverdraft` plus 14 regression tests, including the PM's reproduction and QA's cases. Tests 55 pass / 5 todo, build OK. **Better than planned:** it also catches deepening an existing overdraft, and it fixed S1-5's stale-state bug with a `dataRef`, since that was the same code path. **Watch:** `overdraftError`/`newOverdraft` aren't in the useCallback dependency lists; it's safe because they read the ref, but ESLint will flag them in S1-6, so fix them properly rather than disabling the rule. | QA: 30 logic checks plus 76/76 browser checks (360px and desktop, light and dark), headline case included. Not covered: real phones, Safari/Firefox, screen reader. |
+| 2026-11-16 | S1-6 | PASS (PM) | 894cb19: ESLint 10 flat config; lint is clean with no eslint-disable; the dependency issue is fixed with stable useCallbacks; tests 55/5 todo; build OK. **Differences:** split state into contexts.js/hooks.js, plus useGoalPlan.js and themeOptions.js for fast refresh (14 import changes). Accepted as necessary for the react-refresh rule, and neutral to better. ESLint 10 instead of 9: fine. **Follow-up (fold into S1-2's first commit):** remove `varsIgnorePattern: '^[A-Z]'`. The PM checked that ESLint 10 tracks JSX on its own (lint passes without it), and the pattern hides unused component and icon imports. |
