@@ -248,3 +248,9 @@ Tickets and their "Done when" lines are in [ROADMAP.md](ROADMAP.md).
   - npm test: 76 tests, 72 pass, 4 todo, 0 fail. Lint is clean and the build is OK. Browser checked at 390px light/dark and desktop.
 - **For multiplayer later:** the fee belongs to the person who withdraws. It's tied to the withdrawal transaction, so per-member ledgers will charge it to the right person.
 - **Blocked:** none. Push/merge still waits on the user.
+
+### 2026-11-18 · PM
+- **Done:** Reviewed the user's 3 direct changes (4b70c15, 7d02e6b): accepted. Added a "Product rules" section to ROADMAP. Updated S1-3: the fee counts as a likely cause, and the rounding tolerance now covers interest days + withdrawals. Added fee UX items to S1-5 (withdraw everything, fee in the overdraft message, total fees shown). Added a multiplayer note on who pays the fee.
+- **Process note:** the user going directly to the Developer is fine; the user is the product owner. The Developer handled it well by logging it and asking the PM to update the plan. But S1-2 hadn't passed QA yet, and the fee changed code S1-2 touches. QA must verify S1-2 **at the current head**, including the fee.
+- **Blocked:** a new question for the user: has the 0.2% fee always applied, or only since a certain date? If it's from a date, it needs a start date the way rates do.
+- **Design decision (CEO + PM):** if the fee turns out to be dated, it follows the S1-2 pattern of dated rule periods, not a one-off start-date field. Until the user answers, the fee applies to all withdrawals, and S1-3 lists it as a possible cause.

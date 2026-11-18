@@ -11,6 +11,11 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
    - Changing the rate in Settings recalculates all past interest at the new rate.
    - Nothing checks our numbers against the real bank balance.
 
+## Product rules (set by the user)
+- Interest is 40% a year by default and editable as a rate history (S1-2). The **service charge is fixed at 10% of interest** and can't be edited (user, 2026-11-18).
+- **Withdrawal fee: 0.2%** of each withdrawal, rounded to the santim and taken on the withdrawal date. Deposits and edits never add a fee (user, 2026-11-18). *Open question: has the fee always applied, or since a certain date? Right now it applies to every past withdrawal.* **If it's dated:** model it as a dated rule, using the same pattern as S1-2 rate periods (a `withdrawalFee` in each period, or its own `{ from, rate }` history). Never add a one-off "fee start date" field. (CEO + PM, 2026-11-18)
+- The Home balance card is solid brand green with black text (user, 2026-11-18).
+
 ## Definition of done (every ticket)
 
 - `npm test`, `npm run lint` (no warnings) and `npm run build` pass.
@@ -54,8 +59,8 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
   - When the result isn't "Matches", show the assumptions in plain words.
 - **Three result levels (they replace the single "under 1 Br" rule):**
   - **Matches:** the gap is under 0.01 Br.
-  - **Close, possibly rounding:** the gap is at most 0.005 Br × the number of interest days so far. That's the most daily rounding to the cent could explain. Hint: "A small gap that grows over time usually means Yehulu rounds interest daily."
-  - **Doesn't match:** anything larger. List the likely causes: a missing transaction, a wrong date or amount, or the rate.
+  - **Close, possibly rounding:** the gap is at most 0.005 Br × (the number of interest days + the number of withdrawals) so far. That allows for daily interest rounding and for the bank rounding each fee differently. That's the most daily rounding to the cent could explain. Hint: "A small gap that grows over time usually means Yehulu rounds interest daily."
+  - **Doesn't match:** anything larger. List the likely causes: a missing transaction, a wrong date or amount, the rate, or the withdrawal fee (check whether the bank charged it and when it started).
 - With 2 or more saved checks, if the gap grows in step with the days between them, show the rounding hint more strongly.
 - **Second open question (QA):** for a check on a past date, do we compare against the balance before or after that day's interest? Keep this in one function until the product owner confirms.
 - **Rounding:** waiting on the product owner. If Yehulu rounds daily interest to the cent, put that behind a single constant in `interest.js` with a test. Don't guess.
@@ -84,6 +89,10 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - **Rate history wording (from the S1-2 review):**
   - The earliest rate period also covers every day before its date, so show it as "From the start" rather than a date. A new user's first period is dated the day they installed the app, which looks wrong next to older deposits.
   - Deleting the earliest period recalculates from the start of history, not "from that day onward". Fix the confirm text to say so.
+- **Withdrawal fee UX (from the fee review):**
+  - Add a "Withdraw everything" shortcut that fills in the most you can withdraw, (balance ÷ 1.002) rounded down to the santim, so amount + fee ≤ balance.
+  - When a withdrawal is rejected for overdraft, mention the fee in the message ("including the Br X fee").
+  - Show the total fees paid somewhere (Activity totals or a Home stat). `summarize` already returns `feesPaid`.
 - **`formatAmount(-0.3, { whole: true })` returns "-0".** It should return "0". QA has a todo test for it.
 
 ### [x] S1-6 Lint + test coverage (P1, ESLint approved by the CEO as dev-only; the user can veto)
@@ -123,7 +132,7 @@ The app is in good shape. It has four sections (Home, Activity, Growth, Settings
 - An optional Ethiopian calendar for date display; storage stays Gregorian `YYYY-MM-DD`.
 
 ### Later: shared accounts
-Friends share one account and each person earns on their own deposits (see the product notes). Don't build this yet. Don't add anything that assumes one user per transaction where it's cheap to avoid, for example keep every transaction as a self-contained record with an `id`.
+Friends share one account and each person earns on their own deposits (see the product notes). Don't build this yet. Don't add anything that assumes one user per transaction where it's cheap to avoid, for example keep every transaction as a self-contained record with an `id`. The withdrawal fee belongs to the member who withdraws.
 
 ---
 
@@ -135,3 +144,4 @@ Friends share one account and each person earns on their own deposits (see the p
 | 2026-11-16 | S1-1b | PASS (PM + QA) | `findNewOverdraft` plus 14 regression tests, including the PM's reproduction and QA's cases. Tests 55 pass / 5 todo, build OK. **Better than planned:** it also catches deepening an existing overdraft, and it fixed S1-5's stale-state bug with a `dataRef`, since that was the same code path. **Watch:** `overdraftError`/`newOverdraft` aren't in the useCallback dependency lists; it's safe because they read the ref, but ESLint will flag them in S1-6, so fix them properly rather than disabling the rule. | QA: 30 logic checks plus 76/76 browser checks (360px and desktop, light and dark), headline case included. Not covered: real phones, Safari/Firefox, screen reader. |
 | 2026-11-16 | S1-6 | PASS (PM) | 894cb19: ESLint 10 flat config; lint is clean with no eslint-disable; the dependency issue is fixed with stable useCallbacks; tests 55/5 todo; build OK. **Differences:** split state into contexts.js/hooks.js, plus useGoalPlan.js and themeOptions.js for fast refresh (14 import changes). Accepted as necessary for the react-refresh rule, and neutral to better. ESLint 10 instead of 9: fine. **Follow-up (fold into S1-2's first commit):** remove `varsIgnorePattern: '^[A-Z]'`. The PM checked that ESLint 10 tracks JSX on its own (lint passes without it), and the pattern hides unused component and icon imports. |
 | 2026-11-16 | S1-2 | PASS (PM), QA pending | 65a19e0: schema v3 rate history; `simulateLedger` uses the rate in effect each day; `findNewOverdraft` takes before and after schedules; v1 and v2 saves and backups migrate; 14 new tests, including the "done when" case. Tests 69 pass / 4 todo, lint clean, build OK. **Better than planned:** fixed QA's blank-rate-as-0% bug along the way; days before the first period use the first rate, so backdated deposits still earn; migrating twice gives the same result. **Minor follow-ups (moved to S1-5):** show the earliest period as "From the start", and fix the confirm text when deleting the first period. |
+| 2026-11-18 | User changes (4b70c15, 7d02e6b) | ACCEPTED (PM) | Requested by the user directly, outside the queue. Green balance card; service charge fixed at 10%; 0.2% withdrawal fee in the ledger, the overdraft check and the composer. Tests 72 pass / 4 todo, lint clean. **Impact:** the fee applies to every past withdrawal, so past interest earned changes, and a history that withdrew the exact balance now shows the overdraft banner. Waiting on the user: has the fee always applied? **S1-2 must be QA-verified at the new head**, because the fee changed rates.test and the overdraft behaviour. |
