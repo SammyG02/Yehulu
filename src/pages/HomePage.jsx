@@ -13,14 +13,15 @@ import { formatDate, formatMoney, greeting } from '../lib/format.js'
 import { findOverdraft, summarize } from '../lib/interest.js'
 import { useLedger, useSavings } from '../state/hooks.js'
 
-// Brand pale green (#e7f7ee) with black text and green accents; dark theme uses the dark brand tint.
-const HERO = 'relative overflow-hidden rounded-3xl border border-brand/20 bg-brand-soft p-4 text-ink sm:p-6'
+// Solid brand green (#24b663) with black text, like the logo's green and black.
+// White text would be too faint on this green.
+const HERO = 'relative overflow-hidden rounded-3xl bg-brand p-4 text-[#04160c] shadow-float sm:p-6'
 
 function HeroDecoration() {
   return (
     <div aria-hidden="true">
-      <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full border-[28px] border-brand/10" />
-      <div className="absolute -bottom-28 -left-10 h-56 w-56 rounded-full bg-brand/10 blur-3xl" />
+      <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full border-[28px] border-white/15" />
+      <div className="absolute -bottom-28 -left-10 h-56 w-56 rounded-full bg-black/10 blur-3xl" />
     </div>
   )
 }
@@ -32,10 +33,10 @@ function BalanceCard({ summary }) {
       <HeroDecoration />
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-muted">Total balance</p>
+          <p className="text-sm font-semibold text-[#04160c]/70">Total balance</p>
           {/* Interest earned for today; it's added to the balance when the day ends. */}
           <span
-            className="whitespace-nowrap rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-brand-ink shadow-card"
+            className="whitespace-nowrap rounded-full bg-white/85 px-2.5 py-1 text-xs font-semibold text-[#0d6b35]"
             title="Interest earned today. It's added to your balance at the end of the day."
           >
             +{formatMoney(summary.interestToday)} today
@@ -45,20 +46,20 @@ function BalanceCard({ summary }) {
           <Amount value={summary.balance} />
         </p>
         {summary.depositedToday > 0 && (
-          <p className="mt-1 text-xs text-muted">Today's deposits start earning tomorrow.</p>
+          <p className="mt-1 text-xs text-[#04160c]/70">Today's deposits start earning tomorrow.</p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => actions.openComposer('deposit')}
-            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-brand font-bold text-on-brand transition hover:bg-brand-strong active:scale-[0.98]"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#04160c] font-bold text-white transition hover:bg-black active:scale-[0.98]"
           >
             <ArrowDownLeft className="h-5 w-5" aria-hidden="true" /> Deposit
           </button>
           <button
             type="button"
             onClick={() => actions.openComposer('withdrawal')}
-            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-surface font-bold text-ink transition hover:bg-sunken active:scale-[0.98]"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white/85 font-bold text-[#04160c] transition hover:bg-white active:scale-[0.98]"
           >
             <ArrowUpRight className="h-5 w-5" aria-hidden="true" /> Withdraw
           </button>
@@ -108,22 +109,22 @@ function Welcome() {
         <div className={HERO}>
           <HeroDecoration />
           <div className="relative max-w-md">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-on-brand">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/85 text-[#0d6b35]">
               <PiggyBank className="h-6 w-6" aria-hidden="true" />
             </span>
             <h2 className="mt-5 text-2xl font-extrabold tracking-tight sm:text-3xl">Watch your savings grow, day by day.</h2>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-[#04160c]/75">
               Add the money you've saved and see your balance, daily interest and where it's heading.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 onClick={() => actions.openComposer('deposit')}
-                className="h-12 rounded-xl bg-brand px-5 font-bold text-on-brand transition hover:bg-brand-strong"
+                className="h-12 rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black"
               >
                 Add your first deposit
               </button>
-              <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="border border-line bg-surface text-ink hover:bg-sunken">
+              <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/85 text-[#04160c] hover:bg-white">
                 Set interest rate ({currentRate.annualRate}%)
               </ButtonLink>
             </div>
