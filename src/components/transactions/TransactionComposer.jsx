@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
-import { formatAmount } from '../../lib/format.js'
+import { formatAmount, formatMoney } from '../../lib/format.js'
+import { withdrawalFee } from '../../lib/interest.js'
 import { useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { Field, inputClass } from '../ui/Field.jsx'
@@ -112,6 +113,16 @@ function ComposerForm({ composer, onClose }) {
           className={inputClass}
         />
       </Field>
+
+      {!isDeposit && parseFloat(amount) > 0 && (
+        <p className="flex justify-between rounded-xl bg-sunken px-4 py-2.5 text-sm">
+          <span className="text-muted">Withdrawal fee (0.2%)</span>
+          <span className="font-semibold tabular-nums">
+            {formatMoney(withdrawalFee(parseFloat(amount)))}
+            <span className="font-normal text-muted"> · {formatMoney(parseFloat(amount) + withdrawalFee(parseFloat(amount)))} in total</span>
+          </span>
+        </p>
+      )}
 
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm font-medium text-neg">{error}</p>}
 

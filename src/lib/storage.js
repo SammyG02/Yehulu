@@ -5,7 +5,9 @@ const SCHEMA_VERSION = 3
 
 // Rates are stored as percentages (40 means 40%) so they display exactly as typed.
 export const DEFAULT_ACCOUNT_NAME = 'My savings'
-export const DEFAULT_RATE = { annualRate: 40, serviceCharge: 10 }
+// The service charge is fixed by Yehulu at 10% of interest and isn't editable.
+export const SERVICE_CHARGE = 10
+export const DEFAULT_RATE = { annualRate: 40, serviceCharge: SERVICE_CHARGE }
 
 export const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -28,12 +30,14 @@ const toPercent = (value) => {
   return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null
 }
 
-/** One rate period: { from, annualRate, serviceCharge }, or null if any part is invalid. */
+/**
+ * One rate period: { from, annualRate, serviceCharge }, or null if the date or
+ * rate is invalid. The service charge is always the fixed 10%.
+ */
 export const sanitizeRate = (period) => {
   const annualRate = toPercent(period?.annualRate)
-  const serviceCharge = toPercent(period?.serviceCharge)
-  if (!isDateKey(period?.from) || annualRate === null || serviceCharge === null) return null
-  return { from: period.from, annualRate, serviceCharge }
+  if (!isDateKey(period?.from) || annualRate === null) return null
+  return { from: period.from, annualRate, serviceCharge: SERVICE_CHARGE }
 }
 
 /**
@@ -60,7 +64,7 @@ export const sanitizeAccount = (account, defaultFrom) => {
     rates = [{
       from: defaultFrom,
       annualRate: toPercent(account?.annualRate) ?? DEFAULT_RATE.annualRate,
-      serviceCharge: toPercent(account?.serviceCharge) ?? DEFAULT_RATE.serviceCharge,
+      serviceCharge: SERVICE_CHARGE,
     }]
   }
   return {

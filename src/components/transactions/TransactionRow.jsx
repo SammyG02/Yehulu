@@ -1,5 +1,6 @@
 import { ArrowDownLeft, ArrowUpRight, ChevronRight } from 'lucide-react'
-import { formatDate, formatSigned } from '../../lib/format.js'
+import { formatDate, formatMoney, formatSigned } from '../../lib/format.js'
+import { withdrawalFee } from '../../lib/interest.js'
 import { useSavings } from '../../state/hooks.js'
 
 /** One transaction. Tapping it opens the edit sheet. */
@@ -30,6 +31,7 @@ export function TransactionRow({ txn, showYear = true }) {
             {txn.date > today && (
               <span className="rounded-md bg-accent-soft px-1.5 py-0.5 font-semibold text-accent">Scheduled</span>
             )}
+            {!isDeposit && <span>+{formatMoney(withdrawalFee(txn.amount))} fee</span>}
           </span>
         </span>
         <span className={`whitespace-nowrap text-sm font-bold tabular-nums ${isDeposit ? 'text-brand-ink' : 'text-neg'}`}>

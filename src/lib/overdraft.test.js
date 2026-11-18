@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findNewOverdraft, findOverdraft } from './interest.js'
+import { findNewOverdraft, findOverdraft, simulateLedger, withdrawalFee } from './interest.js'
 import { addDays } from './dates.js'
 
 // Tests for the S1-1b fix: an overdraft that already exists must not block
@@ -102,12 +102,14 @@ test('QA 15-16, 19: deleting a withdrawal, deleting everything, and identical li
   assert.equal(findNewOverdraft(h, [...h], RATES), null)
 })
 
-test('QA 18: withdrawing the exact balance is accepted', () => {
+test('QA 18: withdrawing everything is accepted once the 0.2% fee is counted', () => {
   const h = [deposit(0, 250)]
-  assert.equal(findNewOverdraft(h, [...h, withdrawal(0, 250)], RATES), null)
+  // 249.50 + its 0.50 fee is exactly the balance; 250 + 0.50 is not.
+  assert.equal(findNewOverdraft(h, [...h, withdrawal(0, 249.5)], RATES), null)
+  assert.equal(findNewOverdraft(h, [...h, withdrawal(0, 250)], RATES), TODAY)
   const elsewhere = [...overdrawnHistory(), deposit(-2, 1000)]
   // Balance available on D-1 after the -5 overdraft was cured.
-  assert.equal(findNewOverdraft(elsewhere, [...elsewhere, withdrawal(-1, 600)], RATES), null)
+  assert.equal(findNewOverdraft(elsewhere, [...elsewhere, withdrawal(-1, 590)], RATES), null)
 })
 
 test('QA 20: rates matter: withdrawing earned interest needs a non-zero rate', () => {
@@ -115,4 +117,27 @@ test('QA 20: rates matter: withdrawing earned interest needs a non-zero rate', (
   const earned = [...h, withdrawal(0, 1050)]
   assert.equal(findNewOverdraft(h, earned, RATES), null)
   assert.equal(findNewOverdraft(h, earned, { annualRate: 0, serviceCharge: 0.1 }), TODAY)
+})
+
+// ---- withdrawal fee (0.2%) --------------------------------------------------
+
+test('each withdrawal pays a 0.2% fee on its date; deposits pay nothing', () => {
+  const { ledger } = { ledger: simulateLedger({ transactions: [deposit(-5, 10000), withdrawal(-2, 1000)], rates: RATES, fromDate: TODAY, endDate: TODAY }) }
+  const day = (n) => ledger.find(r => r.date === addDays(TODAY, n))
+  assert.equal(day(-5).fees, 0)
+  assert.equal(day(-2).fees, 2)
+  assert.equal(day(-2).available, day(-2).opening - 1000 - 2)
+  assert.equal(withdrawalFee(1234.56), 2.47)
+  assert.equal(withdrawalFee(1), 0)
+})
+
+test('editing a withdrawal recalculates its one fee; editing a deposit adds none', () => {
+  const fees = (txns) => simulateLedger({ transactions: txns, rates: RATES, fromDate: TODAY, endDate: TODAY })
+    .reduce((sum, r) => sum + r.fees, 0)
+  const w = withdrawal(-2, 1000)
+  const d = deposit(-5, 10000)
+  assert.equal(fees([d, w]), 2)
+  assert.equal(fees([d, { ...w, amount: 500 }]), 1)
+  assert.equal(fees([d, { ...w, date: addDays(TODAY, -1), note: 'edited' }]), 2)
+  assert.equal(fees([{ ...d, amount: 20000 }, w]), 2)
 })

@@ -66,7 +66,9 @@ test('the account rate is used, including zero', () => {
 test('interest to date and net saved', () => {
   const { summary } = run([deposit(-20, 1000), withdrawal(-5, 200)])
   near(summary.netSaved, 800, 'net saved')
-  near(summary.balance - summary.netSaved, summary.interestToDate, 'balance = saved + interest')
+  // The 200 withdrawal pays a 0.2% fee (Br 0.40).
+  near(summary.feesPaid, 0.4, 'fees')
+  near(summary.balance - summary.netSaved + summary.feesPaid, summary.interestToDate, 'balance = saved + interest - fees')
 })
 
 test('overdrafts are detected, including future ones', () => {

@@ -6,12 +6,12 @@ import { Card, CardHeader } from '../../components/ui/Card.jsx'
 import { AffixInput, Field, inputClass } from '../../components/ui/Field.jsx'
 import { addDays, isDateKey } from '../../lib/dates.js'
 import { formatDate, formatPercent } from '../../lib/format.js'
-import { dailyRate, effectiveAnnualRate } from '../../lib/interest.js'
-import { toFraction } from '../../lib/storage.js'
+import { dailyRate, effectiveAnnualRate, periodOn } from '../../lib/interest.js'
+import { SERVICE_CHARGE, toFraction } from '../../lib/storage.js'
 import { useSavings } from '../../state/hooks.js'
 
 const isPercent = (v) => String(v).trim() !== '' && Number(v) >= 0 && Number(v) <= 100
-const describe = (p) => `${p.annualRate}% a year · ${p.serviceCharge}% charge`
+const describe = (p) => `${p.annualRate}% a year`
 
 function RateFigures({ period }) {
   const rates = toFraction(period)
@@ -47,18 +47,19 @@ function RateForm({ editing, onDone }) {
   const start = editing ?? currentRate
   const [from, setFrom] = useState(editing ? editing.from : today)
   const [annualRate, setAnnualRate] = useState(String(start.annualRate))
-  const [serviceCharge, setServiceCharge] = useState(String(start.serviceCharge))
 
   const dateError = isDateKey(from) ? null : 'Pick a date'
   const rateError = isPercent(annualRate) ? null : '0 to 100'
-  const chargeError = isPercent(serviceCharge) ? null : '0 to 100'
-  const valid = !dateError && !rateError && !chargeError
+  const valid = !dateError && !rateError
 
-  const entered = valid ? { from, annualRate: Number(annualRate), serviceCharge: Number(serviceCharge) } : null
+  const entered = valid ? { from, annualRate: Number(annualRate), serviceCharge: SERVICE_CHARGE } : null
   const others = account.rates.filter(p => p.from !== editing?.from)
   const replacing = valid && others.some(p => p.from === from)
-  const unchanged = valid && account.rates.some(p =>
-    p.from === from && p.annualRate === entered.annualRate && p.serviceCharge === entered.serviceCharge)
+  // Nothing to save: the same rate already starts that day, or (for a new
+  // change) that rate is already the one in effect on that day.
+  const unchanged = valid && (
+    account.rates.some(p => p.from === from && p.annualRate === entered.annualRate)
+    || (!editing && periodOn(account.rates, from).annualRate === entered.annualRate))
   const recalcFrom = valid ? (editing && editing.from < from ? editing.from : from) : null
   const affectsPast = valid && recalcFrom < today
 
@@ -74,17 +75,12 @@ function RateForm({ editing, onDone }) {
   return (
     <form onSubmit={submit} noValidate className="space-y-3 border-t border-line p-4">
       <h3 className="text-sm font-bold">{editing ? `Edit the rate from ${formatDate(editing.from)}` : 'Change rate'}</h3>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1.3fr_1fr_1fr]">
-        <div className="col-span-2 sm:col-span-1">
-          <Field id="rate-from" label="Starting" error={dateError}>
-            <input id="rate-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
-          </Field>
-        </div>
-        <Field id="rate-annual" label="Interest rate" error={rateError}>
-          <AffixInput id="rate-annual" suffix="%" min="0" max="100" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field id="rate-from" label="Starting" error={dateError}>
+          <input id="rate-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
         </Field>
-        <Field id="rate-charge" label="Service charge" error={chargeError}>
-          <AffixInput id="rate-charge" suffix="%" min="0" max="100" step="0.01" value={serviceCharge} onChange={(e) => setServiceCharge(e.target.value)} />
+        <Field id="rate-annual" label="Interest rate" hint="Per year" error={rateError}>
+          <AffixInput id="rate-annual" suffix="%" min="0" max="100" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} />
         </Field>
       </div>
 
@@ -181,9 +177,11 @@ export default function LogicSettings() {
             <p className="text-lg font-extrabold tracking-tight">{describe(currentRate)}</p>
           </div>
           <RateFigures period={currentRate} />
-          <p className="text-xs leading-relaxed text-muted">
-            Interest is added every day, so it compounds. Deposits start earning the day after they're made.
-          </p>
+          <ul className="space-y-1 text-xs leading-relaxed text-muted">
+            <li><span className="font-semibold text-ink">Service charge:</span> {SERVICE_CHARGE}% of interest, set by Yehulu.</li>
+            <li><span className="font-semibold text-ink">Withdrawal fee:</span> 0.2% of each withdrawal.</li>
+            <li>Interest is added every day, so it compounds. Deposits start earning the day after they're made.</li>
+          </ul>
         </div>
         <RateForm key={editing?.from ?? 'new'} editing={editing} onDone={() => setEditing(null)} />
       </Card>

@@ -23,7 +23,7 @@ export function DailyBreakdown({ ledger, today }) {
     <Card className="flex min-w-0 flex-col overflow-hidden">
       <CardHeader
         title="Day by day"
-        subtitle="Start + in/out + interest = end"
+        subtitle="Start + in/out (incl. fees) + interest = end"
         action={<Segmented options={VIEWS} value={view} onChange={setView} label="Period" />}
         className="pb-4"
       />
@@ -43,7 +43,7 @@ export function DailyBreakdown({ ledger, today }) {
             </thead>
             <tbody className="divide-y divide-line/60 tabular-nums">
               {rows.map(row => {
-                const flow = row.deposits - row.withdrawals
+                const flow = row.deposits - row.withdrawals - row.fees
                 const flowText = flow === 0 ? null : `${flow > 0 ? '+' : '−'}${formatAmount(Math.abs(flow))}`
                 const flowClass = flow > 0 ? 'text-brand-ink' : 'text-neg'
                 const isToday = row.date === today

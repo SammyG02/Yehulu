@@ -77,8 +77,9 @@ test('a transaction without an id gets a unique one', () => {
 const legacyRate = (account) => sanitizeAccount(account, TODAY).rates[0]
 
 test('sanitizeAccount keeps valid rates, including zero, and rejects the rest', () => {
+  // The service charge is fixed at 10% (S1-2 follow-up, user rule).
   assert.deepEqual(sanitizeAccount({ name: '  Gold  ', annualRate: '35.5', serviceCharge: 0 }, TODAY),
-    { name: 'Gold', rates: [{ from: TODAY, annualRate: 35.5, serviceCharge: 0 }] })
+    { name: 'Gold', rates: [{ from: TODAY, annualRate: 35.5, serviceCharge: 10 }] })
   assert.equal(legacyRate({ annualRate: 0 }).annualRate, 0)
   assert.equal(legacyRate({ annualRate: 100 }).annualRate, 100)
   for (const bad of [-1, 100.01, 'abc', NaN, Infinity, undefined, {}]) {

@@ -120,8 +120,9 @@ const v2 = (over = {}) => ({
 test('9: a v2 save becomes one period from its first transaction, with identical numbers', () => {
   const state = migrate(v2(), TODAY)
   assert.equal(state.version, 3)
-  assert.deepEqual(state.account.rates, [{ from: D(-80), annualRate: 35, serviceCharge: 5 }])
-  const before = run(v2().transactions, { annualRate: 0.35, serviceCharge: 0.05 })
+  // The service charge is fixed at 10%, whatever an old save said.
+  assert.deepEqual(state.account.rates, [{ from: D(-80), annualRate: 35, serviceCharge: 10 }])
+  const before = run(v2().transactions, { annualRate: 0.35, serviceCharge: 0.1 })
   const after = run(state.transactions, toRates(state.account))
   assert.equal(after.summary.balance, before.summary.balance)
   assert.equal(after.summary.interestToDate, before.summary.interestToDate)
@@ -151,7 +152,7 @@ test('13: a corrupt rate history falls back to one sensible period, never none',
   }
   // Bad entries are dropped, good ones kept.
   const mixed = v3([{ from: D(-80), annualRate: 30, serviceCharge: 5 }, { from: 'bad', annualRate: 1, serviceCharge: 1 }])
-  assert.deepEqual(mixed.account.rates, [{ from: D(-80), annualRate: 30, serviceCharge: 5 }])
+  assert.deepEqual(mixed.account.rates, [{ from: D(-80), annualRate: 30, serviceCharge: 10 }])
 })
 
 test('14: migrating twice is stable, and backups round-trip the rate history', () => {
@@ -162,4 +163,13 @@ test('14: migrating twice is stable, and backups round-trip the rate history', (
   assert.deepEqual(parseBackup(exportState(once)).account.rates, once.account.rates)
   // An old v2 backup file restores as v3.
   assert.equal(parseBackup(JSON.stringify(v2())).version, 3)
+})
+
+// ---- user rules (2026-11-18) -----------------------------------------------
+
+test('the service charge is always 10%, whatever is saved', () => {
+  for (const serviceCharge of [0, 5, 50, 100, '', undefined]) {
+    const pct = sanitizeRates([{ from: TODAY, annualRate: 40, serviceCharge }])
+    assert.equal(pct[0].serviceCharge, 10, String(serviceCharge))
+  }
 })

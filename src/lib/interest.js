@@ -5,11 +5,20 @@ import { addDays, addMonths, daysBetween } from './dates.js'
 //     It can change over time: each day uses the rate in effect that day.
 //   - A service charge is taken from the interest, not from the balance.
 //   - Interest is credited every day, so yesterday's interest earns interest today.
+//   - Every withdrawal pays a 0.2% fee, taken on the withdrawal's date. The fee
+//     belongs to the withdrawal itself, so editing it recalculates its one fee;
+//     deposits and edits never add a fee of their own.
 //   - Money starts earning the day after it is deposited. A day's interest is paid
 //     on the balance that sat in the account for that whole day, so a withdrawal
 //     also stops earning on the day it is taken out.
 
 const DAYS_IN_YEAR = 365
+
+/** Fee on each withdrawal, as a fraction (0.2%). */
+export const WITHDRAWAL_FEE_RATE = 0.002
+
+/** The fee for withdrawing `amount`, rounded to the santim. */
+export const withdrawalFee = (amount) => Math.round(amount * WITHDRAWAL_FEE_RATE * 100) / 100
 const CENT = 0.005
 
 /**
@@ -48,7 +57,8 @@ export const effectiveAnnualRate = (rates) => (1 + dailyRate(rates)) ** DAYS_IN_
  *
  * Row fields:
  *   opening    balance at the start of the day (includes all earlier interest)
- *   available  balance after the day's deposits and withdrawals, before its interest
+ *   fees       withdrawal fees taken that day
+ *   available  balance after the day's deposits, withdrawals and fees, before its interest
  *   interest   credited at the end of the day on min(opening, available)
  *   balance    end-of-day balance
  */
@@ -58,9 +68,13 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
   let period = 0
   const flows = new Map()
   for (const txn of transactions) {
-    const flow = flows.get(txn.date) ?? { deposits: 0, withdrawals: 0 }
-    if (txn.type === 'deposit') flow.deposits += txn.amount
-    else flow.withdrawals += txn.amount
+    const flow = flows.get(txn.date) ?? { deposits: 0, withdrawals: 0, fees: 0 }
+    if (txn.type === 'deposit') {
+      flow.deposits += txn.amount
+    } else {
+      flow.withdrawals += txn.amount
+      flow.fees += withdrawalFee(txn.amount)
+    }
     flows.set(txn.date, flow)
   }
 
@@ -72,14 +86,14 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
     // Days only move forward, so the current period can only move forward too.
     while (period + 1 < schedule.length && schedule[period + 1].from <= day) period++
     const rate = dailyRates[period]
-    const { deposits, withdrawals } = flows.get(day) ?? { deposits: 0, withdrawals: 0 }
+    const { deposits, withdrawals, fees } = flows.get(day) ?? { deposits: 0, withdrawals: 0, fees: 0 }
     const opening = balance
-    const available = opening + deposits - withdrawals
+    const available = opening + deposits - withdrawals - fees
     const earningBalance = Math.min(opening, available)
     const interest = earningBalance > 0 ? earningBalance * rate : 0
     balance = available + interest
 
-    rows.push({ date: day, opening, deposits, withdrawals, available, interest, balance })
+    rows.push({ date: day, opening, deposits, withdrawals, fees, available, interest, balance })
     day = addDays(day, 1)
   }
 
@@ -93,6 +107,7 @@ export function summarize(ledger, today) {
   let interestThisMonth = 0
   let deposited = 0
   let withdrawn = 0
+  let feesPaid = 0
   let projectedInterest = 0
   let todayRow = null
 
@@ -106,6 +121,7 @@ export function summarize(ledger, today) {
     if (row.date <= today) {
       deposited += row.deposits
       withdrawn += row.withdrawals
+      feesPaid += row.fees
     }
     if (row.date === today) todayRow = row
   }
@@ -118,6 +134,7 @@ export function summarize(ledger, today) {
     interestToDate,
     interestThisMonth,
     netSaved: deposited - withdrawn,
+    feesPaid,
     projectedBalance: last.balance,
     projectedInterest,
   }
@@ -179,7 +196,7 @@ export function planGoal({ transactions, rates, today, target, monthlyDeposit = 
   for (const row of rows) {
     if (row.date < today) continue
     interest += row.interest
-    deposits += row.deposits - row.withdrawals
+    deposits += row.deposits - row.withdrawals - row.fees
     const reached = row.date === today ? row.available >= target : row.balance >= target
     if (reached) {
       return { date: row.date, days: daysBetween(today, row.date), interest, deposits, balance: row.balance }
