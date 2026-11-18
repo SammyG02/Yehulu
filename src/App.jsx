@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
 import { Analytics } from '@vercel/analytics/react'
+import { Capacitor } from '@capacitor/core'
 import { AppShell } from './components/layout/AppShell.jsx'
 import ActivityPage from './pages/ActivityPage.jsx'
 import GrowthPage from './pages/GrowthPage.jsx'
@@ -25,7 +26,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
-      <Analytics />
+      {!Capacitor.isNativePlatform() && <Analytics />}
     </>
   )
 }

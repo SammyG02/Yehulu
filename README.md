@@ -33,6 +33,22 @@ npm run build   # production build
 
 On Windows, open the project as `C:\...` rather than `c:\...`. Vite can fail to resolve modules when the drive letter case doesn't match.
 
+## Installing on a phone
+
+**iPhone (home screen):** open the site in Safari, tap Share, then *Add to Home Screen*. It opens full screen and works offline after the first visit.
+
+**Android (home screen):** open the site in Chrome and tap *Install app*.
+
+**Native apps (Capacitor):** the `android/` and `ios/` folders are native projects that bundle the built site.
+
+```bash
+npm run app:sync      # build the site and copy it into both native projects
+npm run app:android   # sync, then open Android Studio (Build > Build APK)
+npm run app:ios       # sync, then open Xcode (needs a Mac)
+```
+
+Icons and splash screens come from `assets/`. After changing those images, run `npx capacitor-assets generate`.
+
 ## Structure
 
 ```

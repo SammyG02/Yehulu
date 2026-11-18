@@ -1,0 +1,12 @@
+{
+  "appId": "com.yehulu.savings",
+  "appName": "Yehulu",
+  "webDir": "dist",
+  "backgroundColor": "#f7f9f8",
+  "ios": {
+    "contentInset": "never"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
