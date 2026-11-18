@@ -222,3 +222,29 @@ Tickets and their "Done when" lines are in [ROADMAP.md](ROADMAP.md).
 - **Note for QA:** port 4174 is QA's preview server. My first browser run hit it by accident; I now use port 4391.
 - **Blocked:** none. Push/merge still waits on the user.
 - **Next:** QA verifies S1-2. Then S1-3 (rounding is still undecided; I'll keep it behind one constant).
+
+### 2026-11-16 · PM
+- **Done:** Reviewed S1-2 (65a19e0): PASS from the PM. It ticks after QA. The "done when" case is a unit test, and the Developer also checked it in the browser. 2 small wording follow-ups moved to S1-5.
+- **Next:**
+  - QA: S1-2 plan in the worktree. Remember to `git merge redesign` first.
+  - Developer: once QA passes S1-2, start S1-3 with rounding behind one constant (default: no rounding, i.e. today's behaviour), and the before/after-interest choice in one function (default: after, i.e. the end-of-day balance), until the user answers.
+
+### 2026-11-16 · PM
+- **Done:** Turned the CEO's 3 conditions for S1-3 into the spec: named constants with tests for both values, assumptions shown when there's no match, and a rounding hint. The rounding hint is defined as a measurable rule (gap ≤ 0.005 Br × interest days), with 3 result levels in place of "under 1 Br". **Why:** a 1 Br tolerance would hide rounding drift for about the first 200 days, which is exactly the signal we need to answer the rounding question.
+
+### 2026-11-18 · Developer
+- **Done:** product-owner requests (the user asked directly, so outside the ticket queue).
+  - **Balance card:** solid brand green #24b663 with black text. The user found black "so dark" and pale green too light. Deposit is a dark button and Withdraw is white. Commits "Make the balance card light green" and "Make the balance card brand green".
+  - **Service charge fixed at 10%:** it's no longer editable in Settings → Logic. `sanitizeRate` always stores 10, so old saves with another charge load as 10%.
+  - **Withdrawal fee:** 0.2% of each withdrawal, rounded to the santim (`WITHDRAWAL_FEE_RATE`, `withdrawalFee()` in interest.js), taken on the withdrawal's date.
+    - It's computed from the withdrawal itself, so editing a withdrawal recalculates its one fee and never adds another. Deposits and edits add no fee.
+    - Ledger rows have `fees`. `available` and overdraft checks include it. `summarize` gives `feesPaid`.
+    - The add sheet shows "Withdrawal fee (0.2%) Br X · Br Y in total". Activity rows show the fee; Money out and the daily in/out include fees.
+  - Commit "Add 0.2% withdrawal fee and fix service charge at 10%".
+  - **Also:** "Change from [date]" is disabled when the entered rate is already in effect that day.
+- **Tests:**
+  - Updated for the new rules: interest.test "net saved" (balance = saved + interest − fees), storage.test (charge forced to 10), rates.test #9/#13, and overdraft QA 18 (withdrawing everything now means amount + fee = balance).
+  - Added tests for the fixed charge, the fee amount and timing, and "edits don't add fees".
+  - npm test: 76 tests, 72 pass, 4 todo, 0 fail. Lint is clean and the build is OK. Browser checked at 390px light/dark and desktop.
+- **For multiplayer later:** the fee belongs to the person who withdraws. It's tied to the withdrawal transaction, so per-member ledgers will charge it to the right person.
+- **Blocked:** none. Push/merge still waits on the user.
