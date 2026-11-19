@@ -1,18 +1,21 @@
 import { useContext, useMemo } from 'react'
 import { addDays } from '../lib/dates.js'
-import { simulateLedger, summarize } from '../lib/interest.js'
+import { simulateGroupLedger, simulateLedger, summarize } from '../lib/interest.js'
 import { toRates } from '../lib/storage.js'
 import { AuthContext, ConfirmContext, SavingsContext, ThemeContext } from './contexts.js'
 
 /** Account, transactions, derived values and every action (see savings.jsx). */
 export const useSavings = () => useContext(SavingsContext)
 
-/** Day-by-day ledger from the first transaction through `horizonDays` from today. */
+/**
+ * Day-by-day ledger from the first transaction through `horizonDays` from
+ * today: your own money, or the whole shared account when that's the view.
+ */
 export function useLedger(horizonDays) {
-  const { transactions, rates, today } = useSavings()
+  const { viewGroups, rates, today } = useSavings()
   return useMemo(
-    () => simulateLedger({ transactions, rates, fromDate: today, endDate: addDays(today, horizonDays - 1) }),
-    [transactions, rates, today, horizonDays],
+    () => simulateGroupLedger({ groups: viewGroups, rates, fromDate: today, endDate: addDays(today, horizonDays - 1) }),
+    [viewGroups, rates, today, horizonDays],
   )
 }
 

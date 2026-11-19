@@ -226,6 +226,21 @@ export function SavingsProvider({ children }) {
   const isOwner = !account.cloud || account.role === 'owner'
   // A shared account: more than one member (or the chance to invite some).
   const shared = Boolean(account.cloud && account.members?.length > 1)
+  // In a shared account the owner (and members, if the owner allows it) can
+  // look at the whole account or just their own money. The owner starts on
+  // the whole account: it's their account.
+  const canSeeAll = shared && (isOwner || Boolean(account.membersSeeAll))
+  const [scopeChoice, setScopeChoice] = useState({})
+  const scope = canSeeAll ? (scopeChoice[account.id] ?? (isOwner ? 'all' : 'me')) : 'me'
+  const setScope = useCallback((next) => setScopeChoice(c => ({ ...c, [account.id]: next })), [account.id])
+  const viewTransactions = scope === 'all' ? account.transactions : mine
+  // One list per person, for the whole-account ledger.
+  const viewGroups = useMemo(() => {
+    if (scope !== 'all') return [mine]
+    const byMember = new Map()
+    for (const t of account.transactions) byMember.set(t.memberId, [...(byMember.get(t.memberId) ?? []), t])
+    return [...byMember.values()]
+  }, [scope, mine, account.transactions])
   const canEdit = useCallback((txn) => !account.cloud || isOwner || txn.memberId === me, [account.cloud, isOwner, me])
   const memberName = useCallback((id) => {
     if (id === me) return 'You'
@@ -536,6 +551,11 @@ export function SavingsProvider({ children }) {
     me,
     isOwner,
     shared,
+    canSeeAll,
+    scope,
+    setScope,
+    viewTransactions,
+    viewGroups,
     canEdit,
     memberName,
     accounts: data.accounts,
@@ -548,7 +568,7 @@ export function SavingsProvider({ children }) {
     composer,
     toast,
     actions,
-  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canEdit, memberName, account, mine, rates, currentRate,
+  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canSeeAll, scope, setScope, viewTransactions, viewGroups, canEdit, memberName, account, mine, rates, currentRate,
     composer, toast, actions])
 
   return <SavingsContext.Provider value={value}>{children}</SavingsContext.Provider>

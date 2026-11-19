@@ -4,6 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, Trian
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
+import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
@@ -28,13 +29,13 @@ function HeroDecoration() {
 }
 
 function BalanceCard({ summary }) {
-  const { actions, shared } = useSavings()
+  const { actions, shared, scope } = useSavings()
   return (
     <div className={HERO}>
       <HeroDecoration />
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-[#04160c]/70">{shared ? 'Your balance' : 'Total balance'}</p>
+          <p className="text-sm font-semibold text-[#04160c]/70">{!shared ? 'Total balance' : scope === 'all' ? 'Account balance' : 'Your balance'}</p>
           {/* Interest earned for today; it's added to the balance when the day ends. */}
           <span
             className="whitespace-nowrap rounded-full bg-white/85 px-2.5 py-1 text-xs font-semibold text-[#0d6b35]"
@@ -169,7 +170,7 @@ function SharedStart() {
   const recent = [...allTransactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
   return (
     <>
-      <PageHeader eyebrow={greeting()} title={account.name} />
+      <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">
           <div className={HERO}>
@@ -206,20 +207,21 @@ function SharedStart() {
 
 export default function HomePage() {
   usePageTitle('Home')
-  const { account, transactions, rates, today, shared } = useSavings()
+  const { account, transactions, viewTransactions, rates, today, shared, scope } = useSavings()
   const ledger = useLedger(30)
   const overdraft = useMemo(() => findOverdraft(transactions, rates), [transactions, rates])
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
   const recent = useMemo(
-    () => [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
-    [transactions],
+    () => [...viewTransactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
+    [viewTransactions],
   )
+  const everyone = scope === 'all'
 
-  if (transactions.length === 0) return shared ? <SharedStart /> : <Welcome />
+  if (viewTransactions.length === 0) return shared ? <SharedStart /> : <Welcome />
 
   return (
     <>
-      <PageHeader eyebrow={greeting()} title={account.name} />
+      <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
       {overdraft && <OverdraftBanner date={overdraft} today={today} />}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -229,7 +231,7 @@ export default function HomePage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4">
             <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" />
             <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" />
-            <Stat label="You put in" value={summary.netSaved} className="col-span-2 sm:col-span-1" />
+            <Stat label={everyone ? 'Everyone put in' : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />
           </div>
 
           <Card>
@@ -252,7 +254,8 @@ export default function HomePage() {
 
         <div className="min-w-0 space-y-3 md:space-y-5">
           {shared && <MembersCard />}
-          <GoalCard balance={summary.balance} />
+          {/* Your goal is about your own money. */}
+          {!everyone && <GoalCard balance={summary.balance} />}
           <Card className="overflow-hidden">
             <CardHeader
               title="Recent activity"

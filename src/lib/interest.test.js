@@ -99,3 +99,25 @@ test('goal planner: already reached, reached by interest alone, and with monthly
 
   assert.equal(planGoal({ transactions: [], rates: RATES, today: TODAY, target: 1000 }), null)
 })
+
+test('a shared account: everyone earns on their own money, and the days add up', async () => {
+  const { simulateGroupLedger } = await import('./interest.js')
+  const rates = [{ from: '2026-01-01', annualRate: 0.4, serviceCharge: 0.1 }]
+  const a = [{ id: 'a1', type: 'deposit', amount: 1000, date: '2026-03-01' }]
+  const b = [
+    { id: 'b1', type: 'deposit', amount: 5000, date: '2026-03-10' },
+    { id: 'b2', type: 'withdrawal', amount: 1000, date: '2026-04-01' },
+  ]
+  const endDate = '2026-05-01'
+  const group = simulateGroupLedger({ groups: [a, b], rates, fromDate: endDate, endDate })
+  const alone = (t) => simulateLedger({ transactions: t, rates, fromDate: '2026-03-01', endDate })
+  const [la, lb] = [alone(a), alone(b)]
+  assert.equal(group.length, la.length)
+  assert.equal(group[0].date, '2026-03-01')
+  for (const i of [0, 9, 31, group.length - 1]) {
+    assert.ok(Math.abs(group[i].balance - (la[i].balance + lb[i].balance)) < 1e-9, group[i].date)
+    assert.ok(Math.abs(group[i].interest - (la[i].interest + lb[i].interest)) < 1e-9, group[i].date)
+  }
+  // Same as one person when only one has transactions.
+  assert.deepEqual(simulateGroupLedger({ groups: [a, []], rates, fromDate: endDate, endDate }), simulateLedger({ transactions: a, rates, fromDate: endDate, endDate }))
+})

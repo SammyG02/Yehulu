@@ -204,3 +204,24 @@ export function planGoal({ transactions, rates, today, target, monthlyDeposit = 
   }
   return null
 }
+
+const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'available', 'interest', 'balance']
+
+/**
+ * The whole account's ledger when several people save in it. Everyone earns
+ * interest on their own money, so each person's transactions are simulated
+ * on their own and the days are added up. `groups` is a list of transaction
+ * lists, one per person. Same row fields as simulateLedger.
+ */
+export function simulateGroupLedger({ groups, rates, fromDate, endDate }) {
+  const lists = groups.filter(list => list.length > 0)
+  if (lists.length <= 1) return simulateLedger({ transactions: lists[0] ?? [], rates, fromDate, endDate })
+  // A shared start date, so every person's rows line up day by day.
+  const start = [fromDate, ...lists.flat().map(t => t.date)].sort()[0]
+  const ledgers = lists.map(transactions => simulateLedger({ transactions, rates, fromDate: start, endDate }))
+  return ledgers[0].map((row, i) => {
+    const total = { date: row.date }
+    for (const key of SUMMED) total[key] = ledgers.reduce((sum, l) => sum + l[i][key], 0)
+    return total
+  })
+}

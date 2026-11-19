@@ -3,6 +3,7 @@ import { ChartLine } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { DailyBreakdown } from '../components/DailyBreakdown.jsx'
+import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalPlanner } from '../components/GoalPlanner.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { Button } from '../components/ui/Button.jsx'
@@ -24,16 +25,20 @@ const HORIZONS = [
 
 export default function GrowthPage() {
   usePageTitle('Growth')
-  const { account, transactions, today, currentRate, actions } = useSavings()
+  const { account, viewTransactions, today, currentRate, actions, scope } = useSavings()
   const [horizon, setHorizon] = useState(90)
   const ledger = useLedger(horizon)
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
   const { long } = HORIZONS.find(h => h.value === horizon)
-  const hasTransactions = transactions.length > 0
+  const hasTransactions = viewTransactions.length > 0
 
   return (
     <>
-      <PageHeader title="Growth" subtitle="Where your balance is heading, and when you'll hit your goal." />
+      <PageHeader
+        title="Growth"
+        subtitle={scope === 'all' ? "Where the whole account is heading. Your goal below is about your own money." : "Where your balance is heading, and when you'll hit your goal."}
+        action={<ScopeSwitch />}
+      />
 
       {hasTransactions ? (
         <Card className="mb-3 md:mb-5">
