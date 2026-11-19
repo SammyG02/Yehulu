@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CloudUpload, LogOut } from 'lucide-react'
-import { Avatar } from '../../components/accounts/MembersCard.jsx'
+import { Avatar } from '../../components/accounts/Avatar.jsx'
 import { GoogleButton } from '../../components/auth/GoogleButton.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Card } from '../../components/ui/Card.jsx'

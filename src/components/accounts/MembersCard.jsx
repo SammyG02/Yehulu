@@ -1,48 +1,29 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { Users } from 'lucide-react'
 import { formatMoney } from '../../lib/format.js'
-import { simulateLedger, summarize } from '../../lib/interest.js'
-import { useSavings } from '../../state/hooks.js'
+import { useMemberBalances, useSavings } from '../../state/hooks.js'
 import { Card, CardHeader } from '../ui/Card.jsx'
+import { Avatar } from './Avatar.jsx'
+import { MemberPickerSheet } from './MemberPickerSheet.jsx'
 
-/** Balance today of one person's transactions (everyone earns on their own money). */
-const balanceOf = (transactions, rates, today) =>
-  summarize(simulateLedger({ transactions, rates, fromDate: today, endDate: today }), today).balance
-
-const groupBy = (list, key) => {
-  const map = new Map()
-  for (const item of list) map.set(key(item), [...(map.get(key(item)) ?? []), item])
-  return map
-}
-
-export function Avatar({ member, className = 'h-8 w-8' }) {
-  if (member.avatarUrl) {
-    return <img src={member.avatarUrl} alt="" referrerPolicy="no-referrer" className={`${className} flex-shrink-0 rounded-full object-cover`} />
-  }
-  return (
-    <span className={`${className} flex flex-shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-bold text-brand-ink`} aria-hidden="true">
-      {member.name.slice(0, 1).toUpperCase()}
-    </span>
-  )
-}
+// The card stays short however big the group is; the rest is one tap away.
+const SHOWN = 5
 
 /** Shared account: the total, and each member's balance when you may see it. */
 export function MembersCard() {
-  const { account, allTransactions, rates, today, me, isOwner, canSeeAll, scope, setScope } = useSavings()
+  const { account, me, isOwner, canSeeAll, scope, setScope } = useSavings()
+  const { total, byMember } = useMemberBalances()
+  const [picking, setPicking] = useState(false)
   const seesAll = isOwner || account.membersSeeAll
 
-  const { total, byMember } = useMemo(() => {
-    // The total comes from the anonymous list, so it's right even when you
-    // can only see your own transactions.
-    const groups = groupBy(account.activity ?? [], t => t.memberKey)
-    const total = [...groups.values()].reduce((sum, list) => sum + balanceOf(list, rates, today), 0)
-    const mine = groupBy(allTransactions, t => t.memberId)
-    const byMember = new Map([...mine].map(([id, list]) => [id, balanceOf(list, rates, today)]))
-    return { total, byMember }
-  }, [account.activity, allTransactions, rates, today])
-
-  const members = seesAll ? account.members : account.members.filter(m => m.id === me)
+  // You first, then the owner, then the biggest savers.
+  const members = useMemo(() => {
+    const visible = seesAll ? account.members : account.members.filter(m => m.id === me)
+    const rank = (m) => (m.id === me ? 0 : m.role === 'owner' ? 1 : 2)
+    return [...visible].sort((a, b) => rank(a) - rank(b) || (byMember.get(b.id) ?? 0) - (byMember.get(a.id) ?? 0))
+  }, [seesAll, account.members, me, byMember])
+  const hidden = members.length - SHOWN
 
   return (
     <Card>
@@ -62,7 +43,7 @@ export function MembersCard() {
         <span className="text-lg font-extrabold tabular-nums">{formatMoney(total)}</span>
       </button>
       <ul className="mt-2 divide-y divide-line pb-2">
-        {members.map(m => {
+        {members.slice(0, SHOWN).map(m => {
           // Tap someone to see the app as they do.
           const target = m.id === me ? 'me' : m.id
           const active = canSeeAll && scope === target
@@ -86,6 +67,16 @@ export function MembersCard() {
           )
         })}
       </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="w-full border-t border-line px-4 py-3 text-left text-sm font-semibold text-brand-ink transition hover:bg-sunken/70 sm:px-5"
+        >
+          See all {members.length} members
+        </button>
+      )}
+      {hidden > 0 && <MemberPickerSheet open={picking} onClose={() => setPicking(false)} />}
       {!seesAll && (
         <p className="flex items-center gap-2 border-t border-line px-4 py-3 text-xs text-muted sm:px-5">
           <Users className="h-4 w-4 flex-shrink-0" aria-hidden="true" />

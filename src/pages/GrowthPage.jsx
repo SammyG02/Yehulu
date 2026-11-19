@@ -3,7 +3,7 @@ import { ChartLine } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { DailyBreakdown } from '../components/DailyBreakdown.jsx'
-import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
+import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard, GoalPlanner } from '../components/GoalPlanner.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { Button } from '../components/ui/Button.jsx'
@@ -39,7 +39,6 @@ export default function GrowthPage() {
         subtitle={scope === 'all' ? "Where the whole account is heading. Your goal below is about your own money." : "Where your balance is heading, and when you'll hit your goal."}
         action={<ScopeSwitch />}
       />
-      <ViewingBanner />
 
       {hasTransactions ? (
         <Card className="mb-3 md:mb-5">

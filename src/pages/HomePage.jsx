@@ -4,7 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, Trian
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
-import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
+import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
@@ -172,7 +172,6 @@ function SharedStart() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
-      <ViewingBanner />
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">
           <div className={HERO}>
@@ -228,7 +227,6 @@ export default function HomePage() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
-      <ViewingBanner />
       {!viewMember && overdraft && <OverdraftBanner date={overdraft} today={today} />}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">

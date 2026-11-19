@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { Copy, DoorOpen, Link2, Link2Off, Pencil, RefreshCw, Share2, UserMinus, UserPlus } from 'lucide-react'
-import { Avatar } from '../../components/accounts/MembersCard.jsx'
+import { Avatar } from '../../components/accounts/Avatar.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus, ReceiptText } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
-import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
+import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { Button } from '../components/ui/Button.jsx'
@@ -66,7 +66,6 @@ export default function ActivityPage() {
         subtitle={`${transactions.length} transaction${transactions.length === 1 ? '' : 's'} · tap one to edit`}
         action={<div className="flex items-center gap-2"><ScopeSwitch />{addButton}</div>}
       />
-      <ViewingBanner />
 
       {transactions.length === 0 ? (
         <Card className="flex flex-col items-center px-6 py-12 text-center">

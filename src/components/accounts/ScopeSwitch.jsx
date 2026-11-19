@@ -1,48 +1,44 @@
-import { ChevronDown, Eye } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useSavings } from '../../state/hooks.js'
+import { Segmented } from '../ui/Segmented.jsx'
+import { MemberPickerSheet } from './MemberPickerSheet.jsx'
+
+const PICK = 'pick'
 
 /**
- * Whose money the pages show: the whole shared account, just yours, or one
- * member's ("view as"). Only for those who may see everyone's money.
+ * Whose money the pages show: Everyone | Me | a member ("view as"). The third
+ * pill shows the member's name while you're viewing as them, and opens a
+ * searchable list. Only for those who may see everyone's money.
  */
 export function ScopeSwitch() {
-  const { canSeeAll, scope, setScope, account, me } = useSavings()
+  const { canSeeAll, scope, setScope, viewMember } = useSavings()
+  const [picking, setPicking] = useState(false)
   if (!canSeeAll) return null
-  const others = account.members.filter(m => m.id !== me)
-  return (
-    <label className="relative inline-flex max-w-[11rem] items-center">
-      <span className="sr-only">Whose money to show</span>
-      <select
-        value={scope}
-        onChange={(e) => setScope(e.target.value)}
-        className="h-9 w-full cursor-pointer appearance-none truncate rounded-full bg-brand-soft pl-3.5 pr-8 text-sm font-semibold text-brand-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <option value="all">Everyone</option>
-        <option value="me">Just me</option>
-        {others.length > 0 && (
-          <optgroup label="View as">
-            {others.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </optgroup>
-        )}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-brand-ink" aria-hidden="true" />
-    </label>
-  )
-}
 
-/** Shown while viewing as another member, with the way back. */
-export function ViewingBanner() {
-  const { viewMember, setScope } = useSavings()
-  if (!viewMember) return null
+  const options = [
+    { value: 'all', label: 'Everyone' },
+    { value: 'me', label: 'Me' },
+    {
+      value: PICK,
+      label: (
+        <>
+          <span className="max-w-[5.5rem] truncate">{viewMember ? viewMember.name.split(' ')[0] : 'Member'}</span>
+          <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        </>
+      ),
+    },
+  ]
+
   return (
-    <div className="mb-3 flex items-center gap-3 rounded-2xl bg-accent-soft px-4 py-2.5 text-sm md:mb-5" role="status">
-      <Eye className="h-4 w-4 flex-shrink-0 text-accent" aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        Viewing as <span className="font-bold">{viewMember.name}</span>. This is what they see.
-      </span>
-      <button type="button" onClick={() => setScope('all')} className="flex-shrink-0 font-semibold text-ink underline-offset-2 hover:underline">
-        Back to everyone
-      </button>
-    </div>
+    <>
+      <Segmented
+        options={options}
+        value={viewMember ? PICK : scope}
+        onChange={(v) => (v === PICK ? setPicking(true) : setScope(v))}
+        label="Whose money to show"
+      />
+      <MemberPickerSheet open={picking} onClose={() => setPicking(false)} />
+    </>
   )
 }

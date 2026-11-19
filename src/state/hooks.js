@@ -32,6 +32,28 @@ export function useAccountBalances() {
   })), [accounts, today, me])
 }
 
+/**
+ * Shared account: the total today, and each member's balance today (for the
+ * members you may see). Everyone earns interest on their own money.
+ */
+export function useMemberBalances() {
+  const { account, allTransactions, rates, today } = useSavings()
+  return useMemo(() => {
+    const balanceOf = (transactions) =>
+      summarize(simulateLedger({ transactions, rates, fromDate: today, endDate: today }), today).balance
+    const group = (list, key) => {
+      const map = new Map()
+      for (const item of list) map.set(key(item), [...(map.get(key(item)) ?? []), item])
+      return map
+    }
+    // The total comes from the anonymous list, so it's right even for members
+    // who can only see their own transactions.
+    const total = [...group(account.activity ?? [], t => t.memberKey).values()].reduce((sum, list) => sum + balanceOf(list), 0)
+    const byMember = new Map([...group(allTransactions, t => t.memberId)].map(([id, list]) => [id, balanceOf(list)]))
+    return { total, byMember }
+  }, [account.activity, allTransactions, rates, today])
+}
+
 /** confirm({ title, message, confirmLabel, danger }) → Promise<boolean> (see confirm.jsx). */
 export const useConfirm = () => useContext(ConfirmContext)
 
