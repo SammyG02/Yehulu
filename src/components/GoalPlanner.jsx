@@ -74,10 +74,10 @@ export function GoalPlanner() {
       <div className="space-y-3 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field id="goal-target" label="Target balance">
-            <MoneyInput id="goal-target" value={target} onChange={(e) => update(e.target.value, monthly)} />
+            <MoneyInput id="goal-target" value={target} onValueChange={(v) => update(v, monthly)} />
           </Field>
           <Field id="goal-monthly" label="Monthly top-up" optional>
-            <MoneyInput id="goal-monthly" value={monthly} onChange={(e) => update(target, e.target.value)} />
+            <MoneyInput id="goal-monthly" value={monthly} onValueChange={(v) => update(target, v)} />
           </Field>
         </div>
         <div className="rounded-2xl bg-sunken p-4">

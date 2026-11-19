@@ -1,7 +1,10 @@
+import { useAmountInput } from '../../hooks/useAmountInput.js'
 import { CURRENCY } from '../../lib/format.js'
 
+// min-w-0 / appearance-none / block: iPhone gives date boxes a minimum width
+// that otherwise pushes them past the edge of the screen.
 export const inputClass =
-  'h-11 w-full rounded-xl border border-line bg-canvas px-4 text-base text-ink placeholder:text-muted/70 transition focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25'
+  'block h-11 w-full min-w-0 max-w-full appearance-none rounded-xl [&::-webkit-date-and-time-value]:text-left border border-line bg-canvas px-4 text-base text-ink placeholder:text-muted/70 transition focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25'
 
 export function Field({ id, label, hint, error, optional, children }) {
   return (
@@ -38,4 +41,8 @@ export function AffixInput({ prefix, suffix, className = '', ...props }) {
   )
 }
 
-export const MoneyInput = (props) => <AffixInput prefix={CURRENCY} min="0" step="0.01" placeholder="0.00" {...props} />
+/** Amount in Birr shown as "200,000". `onValueChange` gets the plain number text ("200000"). */
+export function MoneyInput({ value, onValueChange, ...props }) {
+  const amount = useAmountInput(value, onValueChange)
+  return <AffixInput prefix={CURRENCY} placeholder="0.00" {...props} {...amount} />
+}

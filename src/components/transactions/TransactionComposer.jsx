@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
+import { useAmountInput } from '../../hooks/useAmountInput.js'
 import { formatAmount, formatMoney } from '../../lib/format.js'
 import { withdrawalFee } from '../../lib/interest.js'
 import { useSavings } from '../../state/hooks.js'
@@ -29,6 +30,7 @@ function ComposerForm({ composer, onClose }) {
 
   const isDeposit = type === 'deposit'
   const clearError = () => setError(null)
+  const amountInput = useAmountInput(amount, (raw) => { setAmount(raw); clearError() })
 
   const addQuick = (n) => {
     const current = parseFloat(amount) || 0
@@ -75,13 +77,8 @@ function ComposerForm({ composer, onClose }) {
         </label>
         <input
           id="composer-amount"
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="0.01"
+          {...amountInput}
           autoFocus={!editing}
-          value={amount}
-          onChange={(e) => { setAmount(e.target.value); clearError() }}
           placeholder="0"
           className={`mt-1 w-full bg-transparent text-center text-4xl font-extrabold tabular-nums tracking-tight placeholder:text-muted/40 focus:outline-none ${isDeposit ? 'text-brand-ink' : 'text-neg'}`}
           aria-invalid={Boolean(error)}

@@ -39,3 +39,21 @@ export const greeting = (date = new Date()) => {
   const hour = date.getHours()
   return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 }
+
+/**
+ * What someone typed into an amount box, cleaned up: digits and at most one
+ * decimal point with two decimals, no leading zeros, no commas. "1,2a3.456" → "123.45".
+ */
+export const cleanAmountInput = (text) => {
+  let s = String(text).replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 2)
+  return s.replace(/^0+(?=\d)/, '')
+}
+
+/** A cleaned amount with thousands separators, keeping what's typed after the point. "200000.5" → "200,000.5". */
+export const groupAmountInput = (raw) => {
+  const [whole, decimals] = String(raw).split('.')
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return decimals === undefined ? grouped : `${grouped}.${decimals}`
+}

@@ -86,3 +86,19 @@ test('BUG: formatDuration(0) reads wrongly after "sooner" in the goal planner', 
   // when top-ups make no difference. Either the helper or the caller needs a zero case.
   assert.notEqual(`${formatDuration(0)} sooner`, 'today sooner')
 })
+
+test('amount boxes: typing is cleaned and shown with thousands separators', async () => {
+  const { cleanAmountInput, groupAmountInput } = await import('./format.js')
+  assert.equal(cleanAmountInput('200000'), '200000')
+  assert.equal(cleanAmountInput('200,000'), '200000')
+  assert.equal(cleanAmountInput('1,2a3.456'), '123.45')
+  assert.equal(cleanAmountInput('1.2.3'), '1.23')
+  assert.equal(cleanAmountInput('007'), '7')
+  assert.equal(cleanAmountInput('0.5'), '0.5')
+  assert.equal(cleanAmountInput('.'), '.')
+  assert.equal(groupAmountInput('200000'), '200,000')
+  assert.equal(groupAmountInput('1234567.8'), '1,234,567.8')
+  assert.equal(groupAmountInput('999'), '999')
+  assert.equal(groupAmountInput('1000.'), '1,000.')
+  assert.equal(groupAmountInput(''), '')
+})
