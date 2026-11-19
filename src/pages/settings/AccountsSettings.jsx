@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { NewAccountForm } from '../../components/accounts/AccountSwitcher.jsx'
 import { accountKind, accountKindText } from '../../components/accounts/accountKind.js'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
@@ -98,6 +98,7 @@ export default function AccountsSettings() {
   const { accounts, account: active } = useSavings()
   const balances = useAccountBalances()
   const [renaming, setRenaming] = useState(null)
+  const [adding, setAdding] = useState(false)
 
   return (
     <SettingsPanel
@@ -124,10 +125,16 @@ export default function AccountsSettings() {
         </ul>
       </Card>
 
-      <Card className="p-4">
-        <h3 className="mb-3 text-sm font-bold">New account</h3>
-        <NewAccountForm />
-      </Card>
+      {adding ? (
+        <Card className="p-4">
+          <h3 className="mb-3 text-sm font-bold">New account</h3>
+          <NewAccountForm onCreated={() => setAdding(false)} onCancel={() => setAdding(false)} />
+        </Card>
+      ) : (
+        <Button variant="secondary" onClick={() => setAdding(true)}>
+          <Plus className="h-4 w-4" aria-hidden="true" /> Add account
+        </Button>
+      )}
     </SettingsPanel>
   )
 }
