@@ -1,5 +1,7 @@
-import { Calculator, Database, Palette, Wallet } from 'lucide-react'
+import { Calculator, CircleUserRound, Database, Palette, Users, Wallet } from 'lucide-react'
 import AccountsSettings from './AccountsSettings.jsx'
+import ProfileSettings from './ProfileSettings.jsx'
+import SharingSettings from './SharingSettings.jsx'
 import DataSettings from './DataSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
@@ -12,11 +14,26 @@ import { THEME_OPTIONS } from './themeOptions.js'
  */
 export const SETTINGS_SECTIONS = [
   {
+    path: 'profile',
+    label: 'Profile',
+    icon: CircleUserRound,
+    Component: ProfileSettings,
+    summary: ({ user }) => (user ? user.name : 'Sign in to back up and share'),
+  },
+  {
     path: 'accounts',
     label: 'Accounts',
     icon: Wallet,
     Component: AccountsSettings,
     summary: ({ accounts, account }) => accounts.length === 1 ? account.name : `${accounts.length} accounts · ${account.name} open`,
+  },
+  {
+    path: 'sharing',
+    label: 'Sharing',
+    icon: Users,
+    Component: SharingSettings,
+    summary: ({ user, account }) => (!user || !account.cloud ? 'Save with friends'
+      : account.members.length > 1 ? `${account.members.length} members` : 'Invite friends'),
   },
   {
     path: 'logic',

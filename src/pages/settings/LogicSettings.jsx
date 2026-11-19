@@ -88,7 +88,7 @@ function RateForm({ editing, onDone }) {
 }
 
 function RateHistory({ editing, onEdit }) {
-  const { account, currentRate, today, actions } = useSavings()
+  const { account, currentRate, today, actions, isOwner } = useSavings()
   const periods = account.rates
   const onlyOne = periods.length === 1
 
@@ -118,6 +118,7 @@ function RateHistory({ editing, onEdit }) {
                 </p>
                 <p className="text-xs text-muted">{range}</p>
               </div>
+              {isOwner && (<>
               <button
                 type="button"
                 onClick={() => onEdit(period)}
@@ -136,6 +137,7 @@ function RateHistory({ editing, onEdit }) {
               >
                 <Trash2 className="h-4 w-4" />
               </button>
+              </>)}
             </li>
           )
         })}
@@ -145,7 +147,7 @@ function RateHistory({ editing, onEdit }) {
 }
 
 function LogicPanel() {
-  const { account, currentRate } = useSavings()
+  const { account, currentRate, isOwner } = useSavings()
   const [editing, setEditing] = useState(null)
 
   return (
@@ -163,7 +165,9 @@ function LogicPanel() {
             <li>Interest is added every day, so it compounds. Deposits start earning the day after they're made.</li>
           </ul>
         </div>
-        <RateForm key={editing?.from ?? 'new'} editing={editing} onDone={() => setEditing(null)} />
+        {isOwner
+          ? <RateForm key={editing?.from ?? 'new'} editing={editing} onDone={() => setEditing(null)} />
+          : <p className="border-t border-line px-4 py-3 text-xs text-muted">Only the account owner can change the rate.</p>}
       </Card>
 
       <RateHistory editing={editing} onEdit={setEditing} />

@@ -4,14 +4,14 @@ import { PageHeader } from '../../components/layout/AppShell.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { useMediaQuery } from '../../hooks/useMediaQuery.js'
 import { usePageTitle } from '../../hooks/usePageTitle.js'
-import { useSavings } from '../../state/hooks.js'
-import { useTheme } from '../../state/hooks.js'
+import { useAuth, useSavings, useTheme } from '../../state/hooks.js'
 import { SETTINGS_SECTIONS } from './sections.js'
 
 function SettingsMenu() {
   const { accounts, account, transactions, currentRate } = useSavings()
   const { preference } = useTheme()
-  const context = { accounts, account, transactions, currentRate, preference }
+  const { user } = useAuth()
+  const context = { accounts, account, transactions, currentRate, preference, user }
 
   return (
     <Card as="nav" aria-label="Settings sections" className="overflow-hidden">

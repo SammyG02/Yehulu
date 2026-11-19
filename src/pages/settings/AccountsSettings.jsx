@@ -36,6 +36,8 @@ function RenameForm({ account, onDone }) {
 function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
   const { today, actions } = useSavings()
   const count = account.transactions.length
+  // In a friend's shared account only the owner renames or deletes it.
+  const mayManage = !account.cloud || account.role === 'owner'
 
   const remove = () => {
     const what = count ? ` and its ${count} transaction${count === 1 ? '' : 's'}` : ''
@@ -54,6 +56,7 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
           <span className={`block truncate text-sm font-semibold ${isActive ? 'text-brand-ink' : ''}`}>
             {account.name}
             {isActive && <span className="ml-2 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-brand">Open</span>}
+            {account.members?.length > 1 && <span className="ml-2 rounded-full bg-sunken px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">Shared · {account.members.length}</span>}
           </span>
           <span className="block truncate text-xs text-muted">
             {periodOn(account.rates, today).annualRate}% a year · {count} transaction{count === 1 ? '' : 's'}
@@ -61,6 +64,7 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
         </span>
         <span className="text-sm font-bold tabular-nums">{formatMoney(balance)}</span>
       </button>
+      {mayManage && (<>
       <button type="button" onClick={onRename} aria-label={`Rename ${account.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
         <Pencil className="h-4 w-4" />
       </button>
@@ -74,6 +78,7 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
       >
         <Trash2 className="h-4 w-4" />
       </button>
+      </>)}
     </div>
   )
 }

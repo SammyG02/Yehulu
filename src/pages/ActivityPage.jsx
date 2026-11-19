@@ -27,7 +27,8 @@ const matches = (filter, txn, today) => {
 
 export default function ActivityPage() {
   usePageTitle('Activity')
-  const { transactions, today, actions } = useSavings()
+  // Everyone's transactions in a shared account (as far as you may see them).
+  const { allTransactions: transactions, today, actions } = useSavings()
   const [filter, setFilter] = useState('all')
 
   const { months, totalIn, totalOut, count } = useMemo(() => {

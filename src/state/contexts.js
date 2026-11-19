@@ -4,3 +4,4 @@ import { createContext } from 'react'
 // (needed for fast refresh during development).
 export const SavingsContext = createContext(null)
 export const ThemeContext = createContext(null)
+export const AuthContext = createContext(null)

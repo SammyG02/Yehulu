@@ -15,9 +15,11 @@ const TYPES = [
 const QUICK_ADD = [100, 500, 1000, 5000]
 
 function ComposerForm({ composer, onClose }) {
-  const { today, actions } = useSavings()
+  const { today, actions, account, me, isOwner, shared, memberName } = useSavings()
   const editing = composer.mode === 'edit'
   const original = composer.txn
+  const pickMember = !editing && isOwner && shared
+  const [memberId, setMemberId] = useState(me)
 
   const [type, setType] = useState(editing ? original.type : composer.type)
   const [amount, setAmount] = useState(editing ? String(original.amount) : '')
@@ -40,7 +42,7 @@ function ComposerForm({ composer, onClose }) {
     if (!(value > 0)) return setError('Enter an amount greater than zero.')
     if (!date) return setError('Pick a date.')
 
-    const txn = { type, amount: value, date, note: note.trim() }
+    const txn = { type, amount: value, date, note: note.trim(), ...(pickMember ? { memberId } : {}) }
     const problem = editing ? actions.updateTransaction(original.id, txn) : actions.addTransaction(txn)
     if (problem) return setError(problem)
     onClose()
@@ -97,6 +99,19 @@ function ComposerForm({ composer, onClose }) {
           ))}
         </div>
       </div>
+
+      {pickMember && (
+        <Field id="composer-member" label="Whose money">
+          <select id="composer-member" value={memberId} onChange={(e) => { setMemberId(e.target.value); clearError() }} className={inputClass}>
+            {account.members.map(m => <option key={m.id} value={m.id}>{m.id === me ? `You (${m.name})` : m.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {editing && shared && original.memberId && original.memberId !== me && (
+        <p className="rounded-xl bg-sunken px-4 py-2.5 text-sm text-muted">
+          This is <span className="font-semibold text-ink">{memberName(original.memberId)}</span>'s transaction.
+        </p>
+      )}
 
       <Field id="composer-date" label="Date" hint={dateHint}>
         <input id="composer-date" type="date" value={date} onChange={(e) => { setDate(e.target.value); clearError() }} className={inputClass} />

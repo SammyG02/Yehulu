@@ -5,6 +5,7 @@ import { AppShell } from './components/layout/AppShell.jsx'
 import ActivityPage from './pages/ActivityPage.jsx'
 import GrowthPage from './pages/GrowthPage.jsx'
 import HomePage from './pages/HomePage.jsx'
+import JoinPage from './pages/JoinPage.jsx'
 import PrivacyPage from './pages/PrivacyPage.jsx'
 import SettingsLayout from './pages/settings/SettingsLayout.jsx'
 import { SETTINGS_SECTIONS } from './pages/settings/sections.js'
@@ -14,6 +15,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="join/:code" element={<JoinPage />} />
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="activity" element={<ActivityPage />} />

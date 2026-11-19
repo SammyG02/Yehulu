@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
+import { MembersCard } from '../components/accounts/MembersCard.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
@@ -27,13 +28,13 @@ function HeroDecoration() {
 }
 
 function BalanceCard({ summary }) {
-  const { actions } = useSavings()
+  const { actions, shared } = useSavings()
   return (
     <div className={HERO}>
       <HeroDecoration />
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-[#04160c]/70">Total balance</p>
+          <p className="text-sm font-semibold text-[#04160c]/70">{shared ? 'Your balance' : 'Total balance'}</p>
           {/* Interest earned for today; it's added to the balance when the day ends. */}
           <span
             className="whitespace-nowrap rounded-full bg-white/85 px-2.5 py-1 text-xs font-semibold text-[#0d6b35]"
@@ -96,9 +97,9 @@ function Stat({ label, value, tone = '', className = '' }) {
 }
 
 function Welcome() {
-  const { accounts, account, currentRate, actions } = useSavings()
-  // A second (or later) account is empty, not a first visit.
-  const extra = accounts.length > 1
+  const { accounts, account, currentRate, actions, shared, isOwner } = useSavings()
+  // A second (or later) account, or a shared one, is empty, not a first visit.
+  const extra = accounts.length > 1 || shared
   const steps = [
     { icon: ArrowDownLeft, title: 'Add your deposits', text: 'Past ones too. Yehulu works out the interest you\'ve already earned.' },
     { icon: CalendarClock, title: 'Interest every day', text: `${currentRate.annualRate}% a year minus a ${currentRate.serviceCharge}% charge, added daily so it compounds.` },
@@ -131,11 +132,12 @@ function Welcome() {
                 Add your first deposit
               </button>
               <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/85 text-[#04160c] hover:bg-white">
-                Set interest rate ({currentRate.annualRate}%)
+                {isOwner ? `Set interest rate (${currentRate.annualRate}%)` : `Interest rate: ${currentRate.annualRate}%`}
               </ButtonLink>
             </div>
           </div>
         </div>
+        {shared ? <MembersCard /> : (
         <Card className="p-4 sm:p-5">
           <h2 className="font-bold">How it works</h2>
           <ol className="mt-4 space-y-4">
@@ -152,6 +154,7 @@ function Welcome() {
             ))}
           </ol>
         </Card>
+        )}
       </div>
     </>
   )
@@ -159,7 +162,7 @@ function Welcome() {
 
 export default function HomePage() {
   usePageTitle('Home')
-  const { account, transactions, rates, today } = useSavings()
+  const { account, transactions, rates, today, shared } = useSavings()
   const ledger = useLedger(30)
   const overdraft = useMemo(() => findOverdraft(transactions, rates), [transactions, rates])
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
@@ -204,6 +207,7 @@ export default function HomePage() {
         </div>
 
         <div className="min-w-0 space-y-3 md:space-y-5">
+          {shared && <MembersCard />}
           <GoalCard balance={summary.balance} />
           <Card className="overflow-hidden">
             <CardHeader

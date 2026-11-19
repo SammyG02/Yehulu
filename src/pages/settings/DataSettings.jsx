@@ -7,7 +7,7 @@ import { exportState, parseBackup } from '../../lib/storage.js'
 import { useSavings } from '../../state/hooks.js'
 
 export default function DataSettings() {
-  const { data, actions } = useSavings()
+  const { data, cloudMode, actions } = useSavings()
   const [error, setError] = useState(null)
   const fileRef = useRef(null)
   const countIn = (state) => {
@@ -49,18 +49,27 @@ export default function DataSettings() {
   }
 
   return (
-    <SettingsPanel title="Data" description={`${countIn(data)}, stored only on this device.`}>
+    <SettingsPanel
+      title="Data"
+      description={cloudMode ? `${countIn(data)}, saved online in your profile.` : `${countIn(data)}, stored only on this device.`}
+    >
       <Card className="overflow-hidden">
         <div className="divide-y divide-line">
           <SettingsRow icon={Download} label="Back up" description="Download a copy as a file" onClick={backUp} />
-          <SettingsRow icon={Upload} label="Restore" description="Replace everything with a backup file" onClick={() => fileRef.current?.click()} />
+          {!cloudMode && (
+            <SettingsRow icon={Upload} label="Restore" description="Replace everything with a backup file" onClick={() => fileRef.current?.click()} />
+          )}
         </div>
         <input ref={fileRef} type="file" accept="application/json,.json" onChange={restore} className="hidden" />
       </Card>
       {error && <p role="alert" className="px-1 text-sm text-neg">{error}</p>}
-      <Card className="overflow-hidden">
-        <SettingsRow icon={Trash2} tone="danger" label="Delete all data" description="Every account, its transactions, goal and settings" onClick={deleteAll} />
-      </Card>
+      {cloudMode ? (
+        <p className="px-1 text-xs text-muted">Restoring a backup or deleting everything works on device data, after you sign out. Delete online accounts one by one in Accounts.</p>
+      ) : (
+        <Card className="overflow-hidden">
+          <SettingsRow icon={Trash2} tone="danger" label="Delete all data" description="Every account, its transactions, goal and settings" onClick={deleteAll} />
+        </Card>
+      )}
     </SettingsPanel>
   )
 }

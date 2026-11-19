@@ -2,7 +2,7 @@ import { useContext, useMemo } from 'react'
 import { addDays } from '../lib/dates.js'
 import { simulateLedger, summarize } from '../lib/interest.js'
 import { toRates } from '../lib/storage.js'
-import { SavingsContext, ThemeContext } from './contexts.js'
+import { AuthContext, SavingsContext, ThemeContext } from './contexts.js'
 
 /** Account, transactions, derived values and every action (see savings.jsx). */
 export const useSavings = () => useContext(SavingsContext)
@@ -16,14 +16,21 @@ export function useLedger(horizonDays) {
   )
 }
 
-/** Every account's balance today, by account id. Same figure as the Home balance card. */
+/**
+ * Every account's balance today, by account id. Same figure as the Home
+ * balance card: in a shared account, your own money.
+ */
 export function useAccountBalances() {
-  const { accounts, today } = useSavings()
+  const { accounts, today, me } = useSavings()
   return useMemo(() => new Map(accounts.map(a => {
-    const ledger = simulateLedger({ transactions: a.transactions, rates: toRates(a), fromDate: today, endDate: today })
+    const transactions = a.cloud ? a.transactions.filter(t => t.memberId === me) : a.transactions
+    const ledger = simulateLedger({ transactions, rates: toRates(a), fromDate: today, endDate: today })
     return [a.id, summarize(ledger, today).balance]
-  })), [accounts, today])
+  })), [accounts, today, me])
 }
+
+/** { enabled, ready, user, signInWithGoogle, signOut } (see auth.jsx). */
+export const useAuth = () => useContext(AuthContext)
 
 /** { preference, resolved, setPreference } (see theme.jsx). */
 export const useTheme = () => useContext(ThemeContext)

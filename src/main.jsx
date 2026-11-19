@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core'
 import '@fontsource-variable/manrope'
 import './index.css'
 import App from './App.jsx'
+import { AuthProvider } from './state/auth.jsx'
 import { SavingsProvider } from './state/savings.jsx'
 import { ThemeProvider } from './state/theme.jsx'
 
@@ -20,9 +21,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <ThemeProvider>
-        <SavingsProvider>
-          <App />
-        </SavingsProvider>
+        <AuthProvider>
+          <SavingsProvider>
+            <App />
+          </SavingsProvider>
+        </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>,

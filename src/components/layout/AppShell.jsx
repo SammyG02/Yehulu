@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router'
 import { useSavings } from '../../state/hooks.js'
 import { TransactionComposer } from '../transactions/TransactionComposer.jsx'
 import { BottomNav } from './BottomNav.jsx'
+import { CloudGate } from './CloudGate.jsx'
 import { TopBar } from './TopBar.jsx'
 
 function Toast() {
@@ -31,6 +32,7 @@ function Toast() {
 }
 
 export function AppShell() {
+  const { cloudStatus } = useSavings()
   const { pathname, hash } = useLocation()
   // New page: start at the top, or at #section if the link asks for one.
   useEffect(() => {
@@ -38,6 +40,15 @@ export function AppShell() {
     if (target) target.scrollIntoView({ block: 'start' })
     else window.scrollTo(0, 0)
   }, [pathname, hash])
+
+  if (['loading', 'error', 'empty'].includes(cloudStatus)) {
+    return (
+      <>
+        <CloudGate />
+        <Toast />
+      </>
+    )
+  }
 
   return (
     <div className="min-h-[100dvh]">
