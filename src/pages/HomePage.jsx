@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, ChevronRight, PiggyBank, TriangleAlert } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, ChevronRight, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
@@ -150,13 +150,13 @@ function PutInByMember({ total }) {
 }
 
 function Welcome() {
-  const { accounts, account, currentRate, actions, shared, isOwner } = useSavings()
+  const { accounts, account, currentRate, actions, shared } = useSavings()
   // A second (or later) account, or a shared one, is empty, not a first visit.
   const extra = accounts.length > 1 || shared
   const steps = [
-    { icon: ArrowDownLeft, title: 'Add your deposits', text: 'Past ones too. Yehulu works out the interest you\'ve already earned.' },
-    { icon: CalendarClock, title: 'Interest every day', text: `${currentRate.annualRate}% a year minus a ${currentRate.serviceCharge}% charge, added daily so it compounds.` },
-    { icon: ChartLine, title: 'See where it goes', text: 'Projections and a goal planner show when you\'ll reach your target.' },
+    { icon: ArrowDownLeft, text: 'Add your deposits' },
+    { icon: CalendarClock, text: `Earn ${currentRate.annualRate}% a year, daily` },
+    { icon: ChartLine, text: 'Watch it grow' },
   ]
   return (
     <>
@@ -165,44 +165,30 @@ function Welcome() {
         <div className={HERO}>
           <HeroDecoration />
           <div className="relative max-w-md">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/85 text-[#0d6b35]">
-              <PiggyBank className="h-6 w-6" aria-hidden="true" />
-            </span>
-            <h2 className="mt-5 text-2xl font-extrabold tracking-tight sm:text-3xl">
-              {extra ? 'Nothing saved here yet.' : 'Watch your savings grow, day by day.'}
+            <h2 className="text-xl font-extrabold tracking-tight sm:text-2xl">
+              {extra ? 'Nothing saved here yet' : 'Start saving'}
             </h2>
-            <p className="mt-2 text-sm text-[#04160c]/75">
-              {extra
-                ? `Add the money you've put into ${account.name} to see its balance and daily interest.`
-                : "Add the money you've saved and see your balance, daily interest and where it's heading."}
+            <p className="mt-1 text-sm text-[#04160c]/75">
+              {currentRate.annualRate}% a year, added daily.
             </p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => actions.openComposer('deposit')}
-                className="h-12 rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black"
-              >
-                Add your first deposit
-              </button>
-              <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/85 !text-[#04160c] hover:bg-white">
-                {isOwner ? `Set interest rate (${currentRate.annualRate}%)` : `Interest rate: ${currentRate.annualRate}%`}
-              </ButtonLink>
-            </div>
+            <button
+              type="button"
+              onClick={() => actions.openComposer('deposit')}
+              className="mt-4 h-11 w-full rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black sm:w-auto"
+            >
+              Add a deposit
+            </button>
           </div>
         </div>
         {shared ? <MembersCard /> : (
         <Card className="p-4 sm:p-5">
-          <h2 className="font-bold">How it works</h2>
-          <ol className="mt-4 space-y-4">
-            {steps.map(({ icon: Icon, title, text }, i) => (
-              <li key={title} className="flex gap-3">
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
+          <ol className="space-y-3">
+            {steps.map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-3 text-sm font-semibold">
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
                   <Icon className="h-4 w-4" aria-hidden="true" />
                 </span>
-                <span>
-                  <span className="block text-sm font-bold">{i + 1}. {title}</span>
-                  <span className="block text-sm text-muted">{text}</span>
-                </span>
+                {text}
               </li>
             ))}
           </ol>
