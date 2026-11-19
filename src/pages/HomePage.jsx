@@ -14,7 +14,8 @@ import { ButtonLink } from '../components/ui/Button.jsx'
 import { Card, CardHeader } from '../components/ui/Card.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, greeting } from '../lib/format.js'
-import { findOverdraft, summarize } from '../lib/interest.js'
+import { effectiveAnnualRate, findOverdraft, summarize } from '../lib/interest.js'
+import { toFraction } from '../lib/storage.js'
 import { useAuth, useLedger, useSavings } from '../state/hooks.js'
 
 // Solid brand green (#24b663) with black text, like the logo's green and black.
@@ -178,10 +179,17 @@ function Welcome() {
     { icon: CalendarClock, text: `Earn ${currentRate.annualRate}% a year, daily` },
     { icon: ChartLine, text: 'Watch it grow' },
   ]
+  const side = shared ? <MembersCard /> : (
+    <>
+      {enabled && !user && <SaveProgress />}
+      <Example rate={currentRate} />
+    </>
+  )
   return (
     <>
       <PageHeader eyebrow={greeting()} title={extra ? account.name : 'Welcome to Yehulu'} />
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-3 md:space-y-5">
         <div className={HERO}>
           <HeroDecoration />
           <div className="relative">
@@ -199,25 +207,45 @@ function Welcome() {
             </button>
           </div>
         </div>
-        {shared ? <MembersCard /> : (
-          <div className="space-y-3 md:space-y-5">
-            {enabled && !user && <SaveProgress />}
-            <Card className="p-4 sm:p-5">
-              <ol className="space-y-3">
-                {steps.map(({ icon: Icon, text }) => (
-                  <li key={text} className="flex items-center gap-3 text-sm font-semibold">
-                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
-                      <Icon className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    {text}
-                  </li>
-                ))}
-              </ol>
-            </Card>
-          </div>
-        )}
+        {/* On a phone: sign in and the example come right after the balance. */}
+        <div className="space-y-3 lg:hidden">{side}</div>
+        <ol className="grid gap-3 sm:grid-cols-3 md:gap-4">
+          {steps.map(({ icon: Icon, text }, i) => (
+            <li key={text}>
+              <Card className="flex h-full items-center gap-3 p-4">
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="text-sm font-semibold"><span className="text-muted">{i + 1}.</span> {text}</span>
+              </Card>
+            </li>
+          ))}
+        </ol>
+        </div>
+        <div className="hidden space-y-5 lg:block">{side}</div>
       </div>
     </>
+  )
+}
+
+/** What 100,000 grows to at today's rate, so a new saver sees the point. */
+function Example({ rate }) {
+  const start = 100000
+  const growth = effectiveAnnualRate(toFraction(rate))
+  const rows = [[1, '1 year'], [2, '2 years'], [5, '5 years']]
+  return (
+    <Card className="p-4 sm:p-5">
+      <h2 className="font-bold">If you save Br 100,000</h2>
+      <p className="text-sm text-muted">At {rate.annualRate}% a year, with nothing else added</p>
+      <ul className="mt-3 divide-y divide-line">
+        {rows.map(([years, label]) => (
+          <li key={years} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+            <span className="text-muted">In {label}</span>
+            <span className="font-bold tabular-nums text-brand-ink">{formatMoney(start * (1 + growth) ** years)}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 
@@ -281,7 +309,8 @@ export default function HomePage() {
     [viewTransactions],
   )
   const everyone = scope === 'all'
-  const [monthsOpen, setMonthsOpen] = useState(false)
+  // null: closed; 'all': every month; 'YYYY-MM': that month day by day.
+  const [interestView, setInterestView] = useState(null)
 
   if (viewTransactions.length === 0) return shared ? <SharedStart /> : <Welcome />
 
@@ -295,9 +324,8 @@ export default function HomePage() {
           <BalanceCard summary={summary} />
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4">
-            {/* Both open the month-by-month history. */}
-            <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" onClick={() => setMonthsOpen(true)} />
-            <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" onClick={() => setMonthsOpen(true)} />
+            <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" onClick={() => setInterestView('all')} />
+            <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" onClick={() => setInterestView(today.slice(0, 7))} />
             {everyone
               ? <PutInByMember total={summary.netSaved} />
               : <Stat label={viewMember ? `${viewMember.name} put in` : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />}
@@ -337,7 +365,12 @@ export default function HomePage() {
           </Card>
         </div>
       </div>
-      <MonthlyInterestSheet open={monthsOpen} onClose={() => setMonthsOpen(false)} ledger={ledger} />
+      <MonthlyInterestSheet
+        open={interestView !== null}
+        month={interestView === 'all' ? null : interestView}
+        onClose={() => setInterestView(null)}
+        ledger={ledger}
+      />
     </>
   )
 }

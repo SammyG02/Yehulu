@@ -36,8 +36,18 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: '/index.html',
+        // Keep the saved copy small: code, styles and the Latin font only.
+        globPatterns: ['**/*.{js,css,svg,woff2}'],
+        globIgnores: ['**/*{cyrillic,greek,vietnamese,latin-ext}*.woff2'],
+        cleanupOutdatedCaches: true,
+        // Pages come from the internet when there is one, so a new version
+        // shows straight away; the saved page is only used offline.
+        navigateFallback: null,
+        runtimeCaching: [{
+          urlPattern: ({ request }) => request.mode === 'navigate',
+          handler: 'NetworkFirst',
+          options: { cacheName: 'pages', networkTimeoutSeconds: 4, expiration: { maxEntries: 5 } },
+        }],
       },
     }),
   ],
