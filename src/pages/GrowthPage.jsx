@@ -36,7 +36,9 @@ export default function GrowthPage() {
     <>
       <PageHeader
         title="Growth"
-        subtitle={scope === 'all' ? "Where the whole account is heading. Your goal below is about your own money." : "Where your balance is heading, and when you'll hit your goal."}
+        subtitle={scope === 'all' ? 'Where the whole account is heading.'
+          : viewMember ? `Where ${viewMember.name.split(' ')[0]}'s balance is heading.`
+            : 'Where your balance is heading.'}
         action={<ScopeSwitch />}
       />
 
@@ -58,11 +60,11 @@ export default function GrowthPage() {
           <div className="px-2 sm:px-3">
             <LazyBalanceChart className="h-56 md:h-72" ledger={ledger} today={today} />
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4 pt-2 sm:px-5">
+          <div className="space-y-1 px-4 pb-4 pt-2 sm:flex sm:items-center sm:justify-between sm:gap-4 sm:space-y-0 sm:px-5">
             <ChartLegend />
-            <span className="text-xs text-muted">
-              Grows {formatPercent(effectiveAnnualRate(toFraction(currentRate)))} a year at today's rate, with no other transactions
-            </span>
+            <p className="text-xs text-muted">
+              Grows {formatPercent(effectiveAnnualRate(toFraction(currentRate)))} a year at today's rate
+            </p>
           </div>
         </Card>
       ) : (

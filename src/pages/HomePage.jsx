@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, TriangleAlert } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, PiggyBank, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
@@ -93,6 +93,48 @@ function Stat({ label, value, tone = '', className = '' }) {
       <p className={`mt-1 text-base font-extrabold tracking-tight sm:text-lg ${tone}`}>
         <Amount value={value} />
       </p>
+    </Card>
+  )
+}
+
+/** "Everyone put in", tap to see what each person put in (deposits minus withdrawals). */
+function PutInByMember({ total }) {
+  const { account, allTransactions, me } = useSavings()
+  const [open, setOpen] = useState(false)
+  const rows = useMemo(() => {
+    const net = new Map()
+    for (const t of allTransactions) {
+      net.set(t.memberId, (net.get(t.memberId) ?? 0) + (t.type === 'deposit' ? t.amount : -t.amount))
+    }
+    return account.members
+      .map(m => ({ id: m.id, name: m.id === me ? `You (${m.name})` : m.name, amount: net.get(m.id) ?? 0 }))
+      .sort((a, b) => b.amount - a.amount)
+  }, [account.members, allTransactions, me])
+
+  return (
+    <Card className="col-span-2 min-w-0 overflow-hidden sm:col-span-1">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-2 p-3 text-left sm:p-4"
+      >
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold text-muted">Everyone put in</span>
+          <span className="mt-1 block text-base font-extrabold tracking-tight sm:text-lg"><Amount value={total} /></span>
+        </span>
+        <ChevronDown className={`mt-0.5 h-4 w-4 flex-shrink-0 text-muted transition ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <ul className="max-h-72 divide-y divide-line overflow-y-auto border-t border-line">
+          {rows.map(r => (
+            <li key={r.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm sm:px-4">
+              <span className="min-w-0 truncate">{r.name}</span>
+              <span className="flex-shrink-0 font-semibold tabular-nums">{formatMoney(r.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   )
 }
@@ -236,7 +278,9 @@ export default function HomePage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4">
             <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" />
             <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" />
-            <Stat label={everyone ? 'Everyone put in' : viewMember ? `${viewMember.name} put in` : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />
+            {everyone
+              ? <PutInByMember total={summary.netSaved} />
+              : <Stat label={viewMember ? `${viewMember.name} put in` : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />}
           </div>
 
           <Card>

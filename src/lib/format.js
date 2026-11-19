@@ -4,7 +4,7 @@ export const CURRENCY = 'Br'
 
 const money = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const wholeMoney = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 })
 
 /** "1,234.50". Pass { whole: true } for "1,235". */
 export const formatAmount = (value, { whole = false } = {}) =>

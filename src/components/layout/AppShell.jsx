@@ -74,8 +74,8 @@ export function AppShell() {
 
 export function PageHeader({ eyebrow, title, subtitle, action }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4 md:mb-6">
-      <div className="min-w-0">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3 md:mb-6">
+      <div className="min-w-0 flex-1 basis-48">
         {eyebrow && <p className="text-xs font-semibold text-muted">{eyebrow}</p>}
         <h1 className="truncate text-xl font-extrabold tracking-tight md:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}

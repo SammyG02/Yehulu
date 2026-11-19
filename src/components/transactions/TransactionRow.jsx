@@ -29,13 +29,15 @@ export function TransactionRow({ txn, showYear = true }) {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold">{title}</span>
-          <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
-            {who && <span className="font-semibold text-ink">{who}</span>}
-            {dateText}
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
             {txn.date > today && (
-              <span className="rounded-md bg-accent-soft px-1.5 py-0.5 font-semibold text-accent">Scheduled</span>
+              <span className="flex-shrink-0 rounded-md bg-accent-soft px-1.5 py-0.5 font-semibold text-accent">Scheduled</span>
             )}
-            {!isDeposit && <span>+{formatMoney(withdrawalFee(txn.amount))} fee</span>}
+            <span className="truncate">
+              {who && <span className="font-semibold text-ink">{who} · </span>}
+              {dateText}
+              {!isDeposit && ` · +${formatMoney(withdrawalFee(txn.amount))} fee`}
+            </span>
           </span>
         </span>
         <span className={`whitespace-nowrap text-sm font-bold tabular-nums ${isDeposit ? 'text-brand-ink' : 'text-neg'}`}>
