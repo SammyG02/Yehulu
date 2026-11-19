@@ -4,7 +4,7 @@ import { Check, ChevronDown, Plus, Settings2, Users, Wallet } from 'lucide-react
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
 import { DEFAULT_RATE, MAX_ACCOUNTS } from '../../lib/storage.js'
-import { useAccountBalances, useSavings } from '../../state/hooks.js'
+import { useAccountBalances, useAccountTotals, useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { AffixInput, Field, inputClass } from '../ui/Field.jsx'
 import { Sheet } from '../ui/Sheet.jsx'
@@ -63,7 +63,7 @@ export function NewAccountForm({ onCreated, onCancel }) {
 }
 
 /** Every account with its rate and balance today; tap one to open it. */
-function AccountRows({ list, active, balances, today, onPick, actions }) {
+function AccountRows({ list, active, balances, totals, today, onPick, actions }) {
   return (
     <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
       {list.map(a => {
@@ -87,10 +87,14 @@ function AccountRows({ list, active, balances, today, onPick, actions }) {
                   {kindText ?? `${periodOn(a.rates, today).annualRate}% a year`}
                 </span>
               </span>
-              <span className="text-right">
-                <span className="block text-sm font-bold tabular-nums">{formatMoney(balances.get(a.id) ?? 0)}</span>
-                {info.kind !== 'own' && <span className="block text-[11px] text-muted">your money</span>}
-              </span>
+              {totals.has(a.id) ? (
+                <span className="text-right">
+                  <span className="block text-sm font-bold tabular-nums">{formatMoney(totals.get(a.id))}</span>
+                  <span className="block text-[11px] tabular-nums text-muted">You: {formatMoney(balances.get(a.id) ?? 0)}</span>
+                </span>
+              ) : (
+                <span className="text-sm font-bold tabular-nums">{formatMoney(balances.get(a.id) ?? 0)}</span>
+              )}
               <span className="flex w-5 justify-end">
                 {isActive && <Check className="h-4 w-4 text-brand-ink" aria-label="Open" />}
               </span>
@@ -106,9 +110,10 @@ function AccountRows({ list, active, balances, today, onPick, actions }) {
 export function AccountList({ onPick }) {
   const { accounts, account: active, today, actions } = useSavings()
   const balances = useAccountBalances()
+  const totals = useAccountTotals()
   const mine = accounts.filter(a => accountKind(a).kind !== 'joined')
   const joined = accounts.filter(a => accountKind(a).kind === 'joined')
-  const props = { active, balances, today, onPick, actions }
+  const props = { active, balances, totals, today, onPick, actions }
 
   if (joined.length === 0) return <AccountRows list={mine} {...props} />
   return (

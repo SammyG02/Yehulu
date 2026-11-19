@@ -33,6 +33,22 @@ export function useAccountBalances() {
 }
 
 /**
+ * Each shared account's total today (everyone's money), by account id. Built
+ * from the anonymous activity list, so it works even when the owner keeps
+ * balances private. Each member earns interest on their own money.
+ */
+export function useAccountTotals() {
+  const { accounts, today } = useSavings()
+  return useMemo(() => new Map(accounts.filter(a => a.cloud && a.members?.length > 1).map(a => {
+    const byMember = new Map()
+    for (const t of a.activity ?? []) byMember.set(t.memberKey, [...(byMember.get(t.memberKey) ?? []), t])
+    const total = [...byMember.values()].reduce((sum, transactions) => sum
+      + summarize(simulateLedger({ transactions, rates: toRates(a), fromDate: today, endDate: today }), today).balance, 0)
+    return [a.id, total]
+  })), [accounts, today])
+}
+
+/**
  * Shared account: the total today, and each member's balance today (for the
  * members you may see). Everyone earns interest on their own money.
  */

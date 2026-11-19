@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card.jsx'
 import { inputClass } from '../../components/ui/Field.jsx'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
-import { useAccountBalances, useConfirm, useSavings } from '../../state/hooks.js'
+import { useAccountBalances, useAccountTotals, useConfirm, useSavings } from '../../state/hooks.js'
 
 function RenameForm({ account, onDone }) {
   const { accounts, actions } = useSavings()
@@ -34,7 +34,7 @@ function RenameForm({ account, onDone }) {
   )
 }
 
-function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
+function AccountRow({ account, isActive, balance, total, onRename, onlyOne }) {
   const { today, actions } = useSavings()
   const confirm = useConfirm()
   const count = account.transactions.length
@@ -73,7 +73,14 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
             {periodOn(account.rates, today).annualRate}% a year · {count} transaction{count === 1 ? '' : 's'}
           </span>
         </span>
-        <span className="text-sm font-bold tabular-nums">{formatMoney(balance)}</span>
+        {total != null ? (
+          <span className="text-right">
+            <span className="block text-sm font-bold tabular-nums">{formatMoney(total)}</span>
+            <span className="block text-[11px] tabular-nums text-muted">You: {formatMoney(balance)}</span>
+          </span>
+        ) : (
+          <span className="text-sm font-bold tabular-nums">{formatMoney(balance)}</span>
+        )}
       </button>
       {mayManage && (<>
       <button type="button" onClick={onRename} aria-label={`Rename ${account.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
@@ -97,6 +104,7 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
 export default function AccountsSettings() {
   const { accounts, account: active } = useSavings()
   const balances = useAccountBalances()
+  const totals = useAccountTotals()
   const [renaming, setRenaming] = useState(null)
   const [adding, setAdding] = useState(false)
 
@@ -116,6 +124,7 @@ export default function AccountsSettings() {
                     account={a}
                     isActive={a.id === active.id}
                     balance={balances.get(a.id) ?? 0}
+                    total={totals.get(a.id)}
                     onRename={() => setRenaming(a.id)}
                     onlyOne={accounts.length === 1}
                   />
