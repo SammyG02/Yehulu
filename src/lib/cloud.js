@@ -6,7 +6,7 @@ import { SERVICE_CHARGE, sanitizeGoal, sanitizeRates } from './storage.js'
  * buildAccounts turns database rows into the same account shape the app uses
  * on the device, plus the sharing details:
  *   { id, name, rates, goal, transactions, cloud: true, role, ownerId,
- *     membersSeeAll, inviteCode, members: [{ id, name, avatarUrl, role }],
+ *     membersSeeAll, inviteCode, members: [{ id, name, avatarUrl, role, guest }],
  *     activity: [{ memberKey, type, amount, date }] }
  * `transactions` holds every transaction the user may see, each with a
  * memberId. `activity` is every transaction in the account without names,
@@ -54,8 +54,10 @@ export function buildAccounts({ userId, accounts, members, profiles, rates, tran
         members: accountMembers.map(m => ({
           id: m.user_id,
           role: m.role,
-          name: profileById.get(m.user_id)?.name || 'Member',
-          avatarUrl: profileById.get(m.user_id)?.avatar_url ?? null,
+          // Name-only members (no sign-in) are named by the owner.
+          guest: m.role === 'guest',
+          name: (m.role === 'guest' ? m.guest_name : profileById.get(m.user_id)?.name) || 'Member',
+          avatarUrl: m.role === 'guest' ? null : profileById.get(m.user_id)?.avatar_url ?? null,
         })),
         transactions: (txnsOf.get(a.id) ?? []).map(fromRow),
         activity: (activity.get(a.id) ?? []).map(r => ({
@@ -146,6 +148,13 @@ export const cloudApi = (client) => ({
   },
   async removeMember(accountId, userId) {
     check(await client.from('account_members').delete().eq('account_id', accountId).eq('user_id', userId))
+  },
+  /** Adds someone by name (no sign-in). Returns their member id. */
+  async addGuest(accountId, name) {
+    return check(await client.rpc('add_guest', { acc: accountId, guest: name }))
+  },
+  async renameGuest(accountId, guestId, name) {
+    check(await client.rpc('rename_guest', { acc: accountId, guest: guestId, new_name: name }))
   },
   async invitePreview(code) {
     return check(await client.rpc('invite_preview', { code }))?.[0] ?? null

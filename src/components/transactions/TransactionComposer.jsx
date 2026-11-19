@@ -14,12 +14,86 @@ const TYPES = [
   { value: 'withdrawal', label: 'Withdraw', activeClass: 'bg-surface text-neg shadow-card' },
 ]
 const QUICK_ADD = [100, 500, 1000, 5000]
+const ADD = '__add'
+
+const roleLabel = (m) => (m.role === 'owner' ? 'owner' : m.guest ? 'no app' : 'member')
+
+/** "Whose money is this?", with "Add someone…" for people who don't use the app. */
+function MemberPicker({ value, onChange }) {
+  const { account, me, memberName, actions } = useSavings()
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const trimmed = name.trim().slice(0, 40)
+  const taken = account.members.some(m => m.name.toLowerCase() === trimmed.toLowerCase())
+
+  const add = async () => {
+    if (!trimmed || taken || busy) return
+    setBusy(true)
+    const id = await actions.addGuest(trimmed)
+    setBusy(false)
+    if (!id) return
+    onChange(id)
+    setAdding(false)
+    setName('')
+  }
+
+  if (adding) {
+    return (
+      <Field
+        id="composer-new-member"
+        label="Add someone"
+        hint={taken ? undefined : "For people who don't use the app. You'll record their deposits for them."}
+        error={taken ? 'Someone in this account already has that name.' : null}
+      >
+        <div className="flex gap-2">
+          <input
+            id="composer-new-member"
+            type="text"
+            maxLength={40}
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            placeholder="Their name"
+            className={inputClass}
+          />
+          <Button variant="ghost" onClick={() => { setAdding(false); setName('') }}>Cancel</Button>
+          <Button onClick={add} disabled={!trimmed || taken || busy}>{busy ? 'Adding…' : 'Add'}</Button>
+        </div>
+      </Field>
+    )
+  }
+
+  const people = [...account.members].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : 0))
+  return (
+    <Field
+      id="composer-member"
+      label="Whose money is this?"
+      hint={value === me ? 'Counts as your money.' : `Counts as ${memberName(value)}'s money. They earn the interest on it.`}
+    >
+      <select
+        id="composer-member"
+        value={value}
+        onChange={(e) => (e.target.value === ADD ? setAdding(true) : onChange(e.target.value))}
+        className={inputClass}
+      >
+        {people.map(m => (
+          <option key={m.id} value={m.id}>{m.id === me ? `Me (${m.name})` : `${m.name} (${roleLabel(m)})`}</option>
+        ))}
+        <option value={ADD}>＋ Add someone…</option>
+      </select>
+    </Field>
+  )
+}
 
 function ComposerForm({ composer, onClose }) {
   const { today, actions, account, me, isOwner, shared, memberName } = useSavings()
   const editing = composer.mode === 'edit'
   const original = composer.txn
-  const pickMember = !editing && isOwner && shared
+  // The owner of an online account records money for anyone in it, and can
+  // add people by name right here.
+  const pickMember = !editing && isOwner && Boolean(account.cloud)
   const [memberId, setMemberId] = useState(me)
 
   const [type, setType] = useState(editing ? original.type : composer.type)
@@ -71,19 +145,7 @@ function ComposerForm({ composer, onClose }) {
         onChange={(v) => { setType(v); clearError() }}
       />
 
-      {pickMember && (
-        <Field
-          id="composer-member"
-          label="Whose money is this?"
-          hint={memberId === me ? 'Counts as your money.' : `Counts as ${memberName(memberId)}'s money. They earn the interest on it.`}
-        >
-          <select id="composer-member" value={memberId} onChange={(e) => { setMemberId(e.target.value); clearError() }} className={inputClass}>
-            {[...account.members].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : 0)).map(m => (
-              <option key={m.id} value={m.id}>{m.id === me ? `Me (${m.name})` : `${m.name} (${m.role === 'owner' ? 'owner' : 'member'})`}</option>
-            ))}
-          </select>
-        </Field>
-      )}
+      {pickMember && <MemberPicker value={memberId} onChange={(id) => { setMemberId(id); clearError() }} />}
 
       <div className="rounded-2xl bg-sunken px-4 pb-4 pt-3 text-center">
         <label htmlFor="composer-amount" className="text-xs font-semibold uppercase tracking-wider text-muted">

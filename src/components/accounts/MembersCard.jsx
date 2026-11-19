@@ -61,7 +61,7 @@ export function MembersCard() {
             <Avatar member={m} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{m.id === me ? `You (${m.name})` : m.name}</span>
-              <span className="block text-xs text-muted">{m.role === 'owner' ? 'Owner' : 'Member'}</span>
+              <span className="block text-xs text-muted">{m.role === 'owner' ? 'Owner' : m.guest ? 'No app' : 'Member'}</span>
             </span>
             <span className="text-sm font-bold tabular-nums">{formatMoney(byMember.get(m.id) ?? 0)}</span>
           </li>

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Copy, DoorOpen, Link2, Link2Off, RefreshCw, Share2, UserMinus } from 'lucide-react'
+import { Copy, DoorOpen, Link2, Link2Off, Pencil, RefreshCw, Share2, UserMinus, UserPlus } from 'lucide-react'
 import { Avatar } from '../../components/accounts/MembersCard.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
+import { inputClass } from '../../components/ui/Field.jsx'
 import { useAuth, useConfirm, useSavings } from '../../state/hooks.js'
 
 const inviteUrl = (code) => `${window.location.origin}/join/${code}`
@@ -126,16 +127,53 @@ function PrivacyCard() {
   )
 }
 
+const roleText = (m) => (m.role === 'owner' ? 'Owner' : m.guest ? 'No app · you record their money' : 'Member')
+
+/** Owner: a name for someone who doesn't use the app (new, or a fix to an existing one). */
+function GuestNameForm({ initial = '', submitLabel, onSubmit, onCancel }) {
+  const { account } = useSavings()
+  const [name, setName] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const trimmed = name.trim().slice(0, 40)
+  const taken = trimmed.toLowerCase() !== initial.toLowerCase()
+    && account.members.some(m => m.name.toLowerCase() === trimmed.toLowerCase())
+  const ready = trimmed && !taken && trimmed !== initial
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!ready || busy) return
+    setBusy(true)
+    await onSubmit(trimmed)
+    setBusy(false)
+  }
+
+  return (
+    <form onSubmit={submit} noValidate className="space-y-1.5 px-4 py-3 sm:px-5">
+      <label htmlFor="guest-name" className="sr-only">Name</label>
+      <div className="flex gap-2">
+        <input id="guest-name" type="text" maxLength={40} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Their name" className={inputClass} />
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" disabled={!ready || busy}>{busy ? 'Saving…' : submitLabel}</Button>
+      </div>
+      {taken && <p role="alert" className="text-sm text-neg">Someone in this account already has that name.</p>}
+    </form>
+  )
+}
+
 function MemberList() {
   const { account, allTransactions, me, isOwner, actions } = useSavings()
   const confirm = useConfirm()
+  const [adding, setAdding] = useState(false)
+  const [renaming, setRenaming] = useState(null)
 
   const remove = async (m) => {
     const count = allTransactions.filter(t => t.memberId === m.id).length
     const what = count ? ` Their ${count} transaction${count === 1 ? '' : 's'} will be deleted too.` : ''
     if (await confirm({
       title: `Remove ${m.name}?`,
-      message: `${m.name} leaves ${account.name}.${what} They can only come back with a new invite link.`,
+      message: m.guest
+        ? `${m.name} is removed from ${account.name}.${what}`
+        : `${m.name} leaves ${account.name}.${what} They can only come back with a new invite link.`,
       confirmLabel: 'Remove',
       danger: true,
     })) actions.removeMember(m.id)
@@ -145,21 +183,48 @@ function MemberList() {
     <Card className="overflow-hidden">
       <CardHeader title="Members" subtitle={`${account.members.length} in ${account.name}`} className="pb-2" />
       <ul className="divide-y divide-line">
-        {account.members.map(m => (
+        {account.members.map(m => (renaming === m.id ? (
+          <li key={m.id}>
+            <GuestNameForm
+              initial={m.name}
+              submitLabel="Save"
+              onCancel={() => setRenaming(null)}
+              onSubmit={async (name) => { actions.renameGuest(m.id, name); setRenaming(null) }}
+            />
+          </li>
+        ) : (
           <li key={m.id} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
             <Avatar member={m} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{m.id === me ? `You (${m.name})` : m.name}</span>
-              <span className="block text-xs text-muted">{m.role === 'owner' ? 'Owner' : 'Member'}</span>
+              <span className="block text-xs text-muted">{roleText(m)}</span>
             </span>
+            {isOwner && m.guest && (
+              <button type="button" onClick={() => setRenaming(m.id)} aria-label={`Rename ${m.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
             {isOwner && m.role !== 'owner' && (
               <button type="button" onClick={() => remove(m)} aria-label={`Remove ${m.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-neg-soft hover:text-neg">
                 <UserMinus className="h-4 w-4" />
               </button>
             )}
           </li>
-        ))}
+        )))}
       </ul>
+      {isOwner && (adding ? (
+        <div className="border-t border-line">
+          <GuestNameForm
+            submitLabel="Add"
+            onCancel={() => setAdding(false)}
+            onSubmit={async (name) => { if (await actions.addGuest(name)) setAdding(false) }}
+          />
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className="flex w-full items-center gap-3 border-t border-line px-4 py-3 text-left text-sm font-semibold text-brand-ink transition hover:bg-sunken/70 sm:px-5">
+          <UserPlus className="h-4 w-4" aria-hidden="true" /> Add someone who doesn't use the app
+        </button>
+      ))}
     </Card>
   )
 }

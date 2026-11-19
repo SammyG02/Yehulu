@@ -14,6 +14,7 @@ const rows = {
     { account_id: 'a', user_id: ME, role: 'owner', goal_target: 5000, goal_monthly: 200, joined_at: '2026-11-01T10:00:00Z' },
     { account_id: 'b', user_id: ME, role: 'member', goal_target: null, goal_monthly: 0, joined_at: '2026-11-03T10:00:00Z' },
     { account_id: 'b', user_id: FRIEND, role: 'owner', goal_target: 9000, goal_monthly: 0, joined_at: '2026-11-02T10:00:00Z' },
+    { account_id: 'b', user_id: 'g-1', role: 'guest', guest_name: 'Grandma', goal_target: null, goal_monthly: 0, joined_at: '2026-11-04T10:00:00Z' },
   ],
   profiles: [
     { id: ME, name: 'Me Myself', avatar_url: null },
@@ -56,8 +57,14 @@ test('rates are sorted, numeric, and always carry the fixed 10% charge', () => {
 
 test('members list the owner first, with names from profiles', () => {
   const group = buildAccounts(rows)[1]
-  assert.deepEqual(group.members.map(m => [m.id, m.role, m.name]), [[FRIEND, 'owner', 'Friend'], [ME, 'member', 'Me Myself']])
+  assert.deepEqual(group.members.map(m => [m.id, m.role, m.name]),
+    [[FRIEND, 'owner', 'Friend'], [ME, 'member', 'Me Myself'], ['g-1', 'guest', 'Grandma']])
   assert.equal(group.members[0].avatarUrl, 'https://example.com/f.png')
+})
+
+test('name-only members are named by the owner and marked as guests', () => {
+  const grandma = buildAccounts(rows)[1].members.find(m => m.id === 'g-1')
+  assert.deepEqual(grandma, { id: 'g-1', role: 'guest', guest: true, name: 'Grandma', avatarUrl: null })
 })
 
 test('transactions keep whose they are; amounts become numbers', () => {

@@ -437,6 +437,29 @@ export function SavingsProvider({ children }) {
     showToast(`${member?.name ?? 'Member'} removed`)
   }, [setData, remote, reload, showToast])
 
+  /** Owner: adds someone by name only (no sign-in). Resolves to their member id, or null. */
+  const addGuest = useCallback(async (name) => {
+    const current = activeOf(dataRef.current)
+    try {
+      const id = await api.addGuest(current.id, name)
+      setData(d => withAccount(d, a => ({
+        ...a, members: [...a.members, { id, role: 'guest', guest: true, name, avatarUrl: null }],
+      }), current.id))
+      showToast(`${name} added`)
+      return id
+    } catch (err) {
+      showToast(`Couldn't add ${name}: ${err.message}`)
+      return null
+    }
+  }, [setData, showToast])
+
+  const renameGuest = useCallback((guestId, name) => {
+    const current = activeOf(dataRef.current)
+    setData(d => withAccount(d, a => ({ ...a, members: a.members.map(m => (m.id === guestId ? { ...m, name } : m)) })))
+    remote(() => api.renameGuest(current.id, guestId, name))
+    showToast('Name saved')
+  }, [setData, remote, showToast])
+
   /** Leaves a shared account (members only). */
   const leaveAccount = useCallback(() => {
     const current = activeOf(dataRef.current)
@@ -474,6 +497,8 @@ export function SavingsProvider({ children }) {
     setMembersSeeAll,
     setInvite,
     removeMember,
+    addGuest,
+    renameGuest,
     leaveAccount,
     joinAccount,
     invitePreview,
@@ -497,7 +522,7 @@ export function SavingsProvider({ children }) {
     showToast,
     dismissToast,
   }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, deleteAccount,
-    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, leaveAccount, joinAccount, invitePreview,
+    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 
   const value = useMemo(() => ({
