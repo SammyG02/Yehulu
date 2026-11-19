@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, ChevronRight, TriangleAlert } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, ChevronRight, CloudUpload, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
 import { MonthlyInterestSheet } from '../components/MonthlyInterestSheet.jsx'
 import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
+import { GoogleButton } from '../components/auth/GoogleButton.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { ButtonLink } from '../components/ui/Button.jsx'
@@ -14,7 +15,7 @@ import { Card, CardHeader } from '../components/ui/Card.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatMoney, greeting } from '../lib/format.js'
 import { findOverdraft, summarize } from '../lib/interest.js'
-import { useLedger, useSavings } from '../state/hooks.js'
+import { useAuth, useLedger, useSavings } from '../state/hooks.js'
 
 // Solid brand green (#24b663) with black text, like the logo's green and black.
 // White text would be too faint on this green.
@@ -149,8 +150,27 @@ function PutInByMember({ total }) {
   )
 }
 
+/** Signed out: one tap to back everything up and use it on any phone. */
+function SaveProgress() {
+  return (
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
+          <CloudUpload className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-bold">Save your progress</h2>
+          <p className="text-sm text-muted">Sign in to keep your savings safe and open them on any phone.</p>
+        </div>
+      </div>
+      <GoogleButton className="mt-4" returnTo="/" />
+    </Card>
+  )
+}
+
 function Welcome() {
   const { accounts, account, currentRate, actions, shared } = useSavings()
+  const { enabled, user } = useAuth()
   // A second (or later) account, or a shared one, is empty, not a first visit.
   const extra = accounts.length > 1 || shared
   const steps = [
@@ -161,38 +181,40 @@ function Welcome() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={extra ? account.name : 'Welcome to Yehulu'} />
-      <div className="grid gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className={HERO}>
           <HeroDecoration />
-          <div className="relative max-w-md">
-            <h2 className="text-xl font-extrabold tracking-tight sm:text-2xl">
-              {extra ? 'Nothing saved here yet' : 'Start saving'}
-            </h2>
+          <div className="relative">
+            <p className="text-sm font-semibold text-[#04160c]/70">Balance</p>
+            <p className="mt-1 text-4xl font-extrabold tracking-tight tabular-nums">{formatMoney(0)}</p>
             <p className="mt-1 text-sm text-[#04160c]/75">
-              {currentRate.annualRate}% a year, added daily.
+              {currentRate.annualRate}% a year, added daily
             </p>
             <button
               type="button"
               onClick={() => actions.openComposer('deposit')}
-              className="mt-4 h-11 w-full rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black sm:w-auto"
+              className="mt-5 h-12 w-full rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black sm:w-auto"
             >
-              Add a deposit
+              Add your first deposit
             </button>
           </div>
         </div>
         {shared ? <MembersCard /> : (
-        <Card className="p-4 sm:p-5">
-          <ol className="space-y-3">
-            {steps.map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-center gap-3 text-sm font-semibold">
-                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                </span>
-                {text}
-              </li>
-            ))}
-          </ol>
-        </Card>
+          <div className="space-y-3 md:space-y-5">
+            {enabled && !user && <SaveProgress />}
+            <Card className="p-4 sm:p-5">
+              <ol className="space-y-3">
+                {steps.map(({ icon: Icon, text }) => (
+                  <li key={text} className="flex items-center gap-3 text-sm font-semibold">
+                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    {text}
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          </div>
         )}
       </div>
     </>
