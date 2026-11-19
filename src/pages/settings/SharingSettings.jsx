@@ -5,12 +5,30 @@ import { Avatar } from '../../components/accounts/MembersCard.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
-import { useAuth, useSavings } from '../../state/hooks.js'
+import { useAuth, useConfirm, useSavings } from '../../state/hooks.js'
 
 const inviteUrl = (code) => `${window.location.origin}/join/${code}`
 
 function InviteCard() {
   const { account, actions } = useSavings()
+  const confirm = useConfirm()
+
+  const newLink = async () => {
+    if (await confirm({
+      title: 'Make a new link?',
+      message: 'The current link stops working. People who already joined stay in the account.',
+      confirmLabel: 'Make new link',
+    })) change(true)
+  }
+
+  const turnOff = async () => {
+    if (await confirm({
+      title: 'Turn off the invite link?',
+      message: 'Nobody new can join with it. People who already joined stay. You can make a new link any time.',
+      confirmLabel: 'Turn off',
+      danger: true,
+    })) change(false)
+  }
   const [busy, setBusy] = useState(false)
   const url = account.inviteCode ? inviteUrl(account.inviteCode) : null
 
@@ -44,10 +62,10 @@ function InviteCard() {
             <Button variant="secondary" onClick={copy}><Copy className="h-4 w-4" aria-hidden="true" /> Copy</Button>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            <button type="button" disabled={busy} onClick={() => window.confirm('Make a new link? The old one will stop working.') && change(true)} className="inline-flex items-center gap-1.5 font-semibold text-muted hover:text-ink">
+            <button type="button" disabled={busy} onClick={newLink} className="inline-flex items-center gap-1.5 font-semibold text-muted hover:text-ink">
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> New link
             </button>
-            <button type="button" disabled={busy} onClick={() => change(false)} className="inline-flex items-center gap-1.5 font-semibold text-muted hover:text-neg">
+            <button type="button" disabled={busy} onClick={turnOff} className="inline-flex items-center gap-1.5 font-semibold text-muted hover:text-neg">
               <Link2Off className="h-3.5 w-3.5" aria-hidden="true" /> Turn off
             </button>
           </div>
@@ -65,6 +83,17 @@ function InviteCard() {
 
 function PrivacyCard() {
   const { account, isOwner, actions } = useSavings()
+  const confirm = useConfirm()
+
+  // Showing everyone's money needs a yes; hiding it is always safe.
+  const toggle = async (on) => {
+    if (on && !(await confirm({
+      title: "Show everyone's money?",
+      message: "Every member will see all transactions and each person's balance in this account.",
+      confirmLabel: 'Show to members',
+    }))) return
+    actions.setMembersSeeAll(on)
+  }
   if (!isOwner) {
     return (
       <Card className="p-4 text-sm text-muted">
@@ -89,7 +118,7 @@ function PrivacyCard() {
           type="checkbox"
           role="switch"
           checked={account.membersSeeAll}
-          onChange={(e) => actions.setMembersSeeAll(e.target.checked)}
+          onChange={(e) => toggle(e.target.checked)}
           className="mt-1 h-5 w-9 flex-shrink-0 cursor-pointer appearance-none rounded-full bg-line transition before:block before:h-4 before:w-4 before:translate-x-0.5 before:rounded-full before:bg-white before:shadow before:transition checked:bg-brand checked:before:translate-x-[1.1rem]"
         />
       </label>
@@ -99,11 +128,17 @@ function PrivacyCard() {
 
 function MemberList() {
   const { account, allTransactions, me, isOwner, actions } = useSavings()
+  const confirm = useConfirm()
 
-  const remove = (m) => {
+  const remove = async (m) => {
     const count = allTransactions.filter(t => t.memberId === m.id).length
     const what = count ? ` Their ${count} transaction${count === 1 ? '' : 's'} will be deleted too.` : ''
-    if (window.confirm(`Remove ${m.name} from ${account.name}?${what}`)) actions.removeMember(m.id)
+    if (await confirm({
+      title: `Remove ${m.name}?`,
+      message: `${m.name} leaves ${account.name}.${what} They can only come back with a new invite link.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })) actions.removeMember(m.id)
   }
 
   return (
@@ -132,6 +167,7 @@ function MemberList() {
 export default function SharingSettings() {
   const { user } = useAuth()
   const { account, isOwner, actions } = useSavings()
+  const confirm = useConfirm()
 
   if (!user || !account.cloud) {
     return (
@@ -144,8 +180,13 @@ export default function SharingSettings() {
     )
   }
 
-  const leave = () => {
-    if (window.confirm(`Leave ${account.name}? Your transactions in it will be deleted.`)) actions.leaveAccount()
+  const leave = async () => {
+    if (await confirm({
+      title: `Leave ${account.name}?`,
+      message: 'Your transactions in it will be deleted. You can only come back with a new invite link.',
+      confirmLabel: 'Leave',
+      danger: true,
+    })) actions.leaveAccount()
   }
 
   return (

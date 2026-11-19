@@ -4,11 +4,12 @@ import { Avatar } from '../../components/accounts/MembersCard.jsx'
 import { GoogleButton } from '../../components/auth/GoogleButton.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Card } from '../../components/ui/Card.jsx'
-import { useAuth, useSavings } from '../../state/hooks.js'
+import { useAuth, useConfirm, useSavings } from '../../state/hooks.js'
 
 export default function ProfileSettings() {
   const { enabled, user, signOut } = useAuth()
   const { localData, localUploaded, actions } = useSavings()
+  const confirm = useConfirm()
   const [uploading, setUploading] = useState(false)
   const localCount = localData.accounts.reduce((n, a) => n + a.transactions.length, 0)
 
@@ -39,8 +40,21 @@ export default function ProfileSettings() {
     )
   }
 
+  const askSignOut = async () => {
+    if (await confirm({
+      title: 'Sign out?',
+      message: "Your accounts stay saved online. Sign in again with the same Google account to see them. Until then, this device shows only what's saved on it.",
+      confirmLabel: 'Sign out',
+      danger: true,
+    })) signOut()
+  }
+
   const upload = async () => {
-    if (!window.confirm(`Copy the ${localCount} transaction${localCount === 1 ? '' : 's'} saved on this device into new online accounts?`)) return
+    if (!(await confirm({
+      title: 'Upload from this device?',
+      message: `The ${localCount} transaction${localCount === 1 ? '' : 's'} saved on this device are copied into new online accounts.`,
+      confirmLabel: 'Upload',
+    }))) return
     setUploading(true)
     try { await actions.uploadLocal() } finally { setUploading(false) }
   }
@@ -64,7 +78,7 @@ export default function ProfileSettings() {
               onClick={uploading ? undefined : upload}
             />
           )}
-          <SettingsRow icon={LogOut} label="Sign out" description="Your online accounts stay safe" onClick={signOut} />
+          <SettingsRow icon={LogOut} label="Sign out" description="Your online accounts stay safe" onClick={askSignOut} />
         </div>
       </Card>
     </SettingsPanel>

@@ -4,10 +4,11 @@ import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI
 import { Card } from '../../components/ui/Card.jsx'
 import { toDateKey } from '../../lib/dates.js'
 import { exportState, parseBackup } from '../../lib/storage.js'
-import { useSavings } from '../../state/hooks.js'
+import { useConfirm, useSavings } from '../../state/hooks.js'
 
 export default function DataSettings() {
   const { data, cloudMode, actions } = useSavings()
+  const confirm = useConfirm()
   const [error, setError] = useState(null)
   const fileRef = useRef(null)
   const countIn = (state) => {
@@ -34,18 +35,24 @@ export default function DataSettings() {
     try {
       const next = parseBackup(await file.text())
       setError(null)
-      if (window.confirm(`Replace everything with this backup (${countIn(next)})? Your current data will be lost.`)) {
-        actions.replaceAll(next)
-      }
+      if (await confirm({
+        title: 'Restore this backup?',
+        message: `It has ${countIn(next)}. Everything on this device now will be replaced.`,
+        confirmLabel: 'Replace everything',
+        danger: true,
+      })) actions.replaceAll(next)
     } catch (err) {
       setError(err.message)
     }
   }
 
-  const deleteAll = () => {
-    if (window.confirm('Delete every account with its transactions, goal and settings? This cannot be undone. Back up first if unsure.')) {
-      actions.reset()
-    }
+  const deleteAll = async () => {
+    if (await confirm({
+      title: 'Delete all data?',
+      message: 'Every account with its transactions, goal and settings is deleted from this device. This cannot be undone, so back up first if unsure.',
+      confirmLabel: 'Delete everything',
+      danger: true,
+    })) actions.reset()
   }
 
   return (

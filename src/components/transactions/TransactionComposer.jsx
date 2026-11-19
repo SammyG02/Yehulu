@@ -50,8 +50,8 @@ function ComposerForm({ composer, onClose }) {
     onClose()
   }
 
-  const remove = () => {
-    if (actions.deleteTransaction(original)) onClose()
+  const remove = async () => {
+    if (await actions.deleteTransaction(original)) onClose()
   }
 
   const dateHint = date > today

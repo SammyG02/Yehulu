@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card.jsx'
 import { inputClass } from '../../components/ui/Field.jsx'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
-import { useAccountBalances, useSavings } from '../../state/hooks.js'
+import { useAccountBalances, useConfirm, useSavings } from '../../state/hooks.js'
 
 function RenameForm({ account, onDone }) {
   const { accounts, actions } = useSavings()
@@ -35,13 +35,22 @@ function RenameForm({ account, onDone }) {
 
 function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
   const { today, actions } = useSavings()
+  const confirm = useConfirm()
   const count = account.transactions.length
   // In a friend's shared account only the owner renames or deletes it.
   const mayManage = !account.cloud || account.role === 'owner'
 
-  const remove = () => {
-    const what = count ? ` and its ${count} transaction${count === 1 ? '' : 's'}` : ''
-    if (window.confirm(`Delete "${account.name}"${what}? This cannot be undone.`)) actions.deleteAccount(account.id)
+  const remove = async () => {
+    const others = account.members?.length > 1
+      ? ` Its ${account.members.length - 1} other member${account.members.length === 2 ? '' : 's'} lose it too.`
+      : ''
+    const txns = count ? `Its ${count} transaction${count === 1 ? '' : 's'} will be deleted.` : 'It has no transactions.'
+    if (await confirm({
+      title: `Delete ${account.name}?`,
+      message: `${txns}${others} This cannot be undone.`,
+      confirmLabel: 'Delete account',
+      danger: true,
+    })) actions.deleteAccount(account.id)
   }
 
   return (

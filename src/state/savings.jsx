@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useToday } from '../hooks/useToday.js'
-import { AuthContext, SavingsContext } from './contexts.js'
+import { AuthContext, ConfirmContext, SavingsContext } from './contexts.js'
 import { cloudApi, fetchAccounts } from '../lib/cloud.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
@@ -52,6 +52,7 @@ const markUploaded = (userId) => { try { localStorage.setItem(uploadedKey(userId
 export function SavingsProvider({ children }) {
   const today = useToday()
   const auth = useContext(AuthContext)
+  const confirm = useContext(ConfirmContext)
   const userId = auth?.user?.id ?? null
   const cloudMode = Boolean(userId)
 
@@ -283,14 +284,27 @@ export function SavingsProvider({ children }) {
     return null
   }, [setData, overdraftError, remote, showToast])
 
-  /** Returns true if deleted. */
-  const deleteTransaction = useCallback((txn) => {
+  /** Resolves to true if deleted. Asks first when it's someone else's or would leave a balance below zero. */
+  const deleteTransaction = useCallback(async (txn) => {
     const current = activeOf(dataRef.current)
     const remaining = current.transactions.filter(t => t.id !== txn.id)
     const overdraft = newOverdraft(memberOf(txn), remaining)
-    if (overdraft && !window.confirm(
-      `Deleting this leaves the balance below zero on ${formatDate(overdraft)}. Delete it anyway?`,
-    )) return false
+    const owner = txn.memberId && txn.memberId !== userId
+      ? current.members?.find(m => m.id === txn.memberId)?.name ?? 'another member'
+      : null
+    if (overdraft || owner) {
+      const reasons = [
+        owner && `This is ${owner}'s ${txn.type}. They'll see it disappear.`,
+        overdraft && `It leaves the balance below zero on ${formatDate(overdraft)}.`,
+      ].filter(Boolean)
+      const ok = await confirm({
+        title: `Delete this ${txn.type}?`,
+        message: reasons.join(' '),
+        confirmLabel: 'Delete',
+        danger: true,
+      })
+      if (!ok) return false
+    }
     setData(d => withAccount(d, a => ({ ...a, transactions: a.transactions.filter(t => t.id !== txn.id) })))
     remote(() => api.deleteTransaction(txn.id))
     showToast(`${label(txn)} deleted`, {
@@ -302,15 +316,15 @@ export function SavingsProvider({ children }) {
       },
     })
     return true
-  }, [setData, newOverdraft, remote, showToast])
+  }, [userId, confirm, setData, newOverdraft, remote, showToast])
 
   // ---- rates and goal ------------------------------------------------------
 
   /**
    * Replaces the rate history (owner only). If the new rates would push anyone
-   * below zero where they weren't before, asks first. Returns true if saved.
+   * below zero where they weren't before, asks first. Resolves to true if saved.
    */
-  const changeRates = useCallback((nextRates, message = 'Rate saved') => {
+  const changeRates = useCallback(async (nextRates, message = 'Rate saved') => {
     const current = activeOf(dataRef.current)
     const next = sanitizeRates(nextRates)
     if (next.length === 0) return false
@@ -322,14 +336,16 @@ export function SavingsProvider({ children }) {
       })
       .filter(Boolean)
       .sort()[0]
-    if (overdraft && !window.confirm(
-      `With this rate a balance goes below zero on ${formatDate(overdraft)}. Save anyway?`,
-    )) return false
+    if (overdraft && !(await confirm({
+      title: 'Save this rate anyway?',
+      message: `With this rate a balance goes below zero on ${formatDate(overdraft)}.`,
+      confirmLabel: 'Save anyway',
+    }))) return false
     setData(d => withAccount(d, a => ({ ...a, rates: next })))
     remote(() => api.setRates(current.id, next))
     showToast(message)
     return true
-  }, [setData, remote, showToast])
+  }, [confirm, setData, remote, showToast])
 
   // The goal planner saves as you type: send to the cloud once typing pauses.
   const goalTimer = useRef(null)

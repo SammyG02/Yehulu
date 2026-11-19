@@ -8,7 +8,7 @@ import { addDays, isDateKey } from '../../lib/dates.js'
 import { formatDate, formatPercent } from '../../lib/format.js'
 import { dailyRate, effectiveAnnualRate, periodOn } from '../../lib/interest.js'
 import { SERVICE_CHARGE, toFraction } from '../../lib/storage.js'
-import { useSavings } from '../../state/hooks.js'
+import { useConfirm, useSavings } from '../../state/hooks.js'
 
 const isPercent = (v) => String(v).trim() !== '' && Number(v) >= 0 && Number(v) <= 100
 const describe = (p) => `${p.annualRate}% a year`
@@ -26,6 +26,7 @@ function RateFigures({ period }) {
 /** "Change rate from [date]", or editing an existing period when `editing` is set. */
 function RateForm({ editing, onDone }) {
   const { account, currentRate, today, actions } = useSavings()
+  const confirm = useConfirm()
   const start = editing ?? currentRate
   const [from, setFrom] = useState(editing ? editing.from : today)
   const [annualRate, setAnnualRate] = useState(String(start.annualRate))
@@ -45,13 +46,15 @@ function RateForm({ editing, onDone }) {
   const recalcFrom = valid ? (editing && editing.from < from ? editing.from : from) : null
   const affectsPast = valid && recalcFrom < today
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault()
     if (!valid || unchanged) return
-    if (affectsPast && !window.confirm(
-      `This recalculates interest from ${formatDate(recalcFrom)} onward, including interest already earned. Continue?`,
-    )) return
-    if (actions.changeRates([...others, entered], editing ? 'Rate updated' : 'Rate changed')) onDone()
+    if (affectsPast && !(await confirm({
+      title: 'Change a past rate?',
+      message: `Interest from ${formatDate(recalcFrom)} onward will be recalculated, including interest already earned.`,
+      confirmLabel: 'Recalculate',
+    }))) return
+    if (await actions.changeRates([...others, entered], editing ? 'Rate updated' : 'Rate changed')) onDone()
   }
 
   return (
@@ -89,15 +92,21 @@ function RateForm({ editing, onDone }) {
 
 function RateHistory({ editing, onEdit }) {
   const { account, currentRate, today, actions, isOwner } = useSavings()
+  const confirm = useConfirm()
   const periods = account.rates
   const onlyOne = periods.length === 1
 
-  const remove = (period) => {
+  const remove = async (period) => {
     if (onlyOne) return
-    if (period.from < today && !window.confirm(
-      `Delete the rate from ${formatDate(period.from)}? Interest from that day onward will be recalculated, including interest already earned.`,
-    )) return
-    if (actions.changeRates(periods.filter(p => p !== period), 'Rate deleted') && editing === period) onEdit(null)
+    if (!(await confirm({
+      title: `Delete the ${period.annualRate}% rate?`,
+      message: period.from < today
+        ? `It started on ${formatDate(period.from)}. Interest from that day onward will be recalculated, including interest already earned.`
+        : `It was set to start on ${formatDate(period.from)}.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    }))) return
+    if (await actions.changeRates(periods.filter(p => p !== period), 'Rate deleted') && editing === period) onEdit(null)
   }
 
   return (

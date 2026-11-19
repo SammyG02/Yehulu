@@ -1,5 +1,5 @@
 import { CloudOff, LoaderCircle, PiggyBank } from 'lucide-react'
-import { useAuth, useSavings } from '../../state/hooks.js'
+import { useAuth, useConfirm, useSavings } from '../../state/hooks.js'
 import { NewAccountForm } from '../accounts/AccountSwitcher.jsx'
 import { Button } from '../ui/Button.jsx'
 import { Card } from '../ui/Card.jsx'
@@ -11,7 +11,11 @@ import { Logo } from './Logo.jsx'
  */
 export function CloudGate() {
   const { cloudStatus, cloudError, actions } = useSavings()
-  const { signOut } = useAuth()
+  const { signOut: doSignOut } = useAuth()
+  const confirm = useConfirm()
+  const signOut = async () => {
+    if (await confirm({ title: 'Sign out?', message: 'Your accounts stay saved online.', confirmLabel: 'Sign out', danger: true })) doSignOut()
+  }
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-10">

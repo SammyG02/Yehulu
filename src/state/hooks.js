@@ -2,7 +2,7 @@ import { useContext, useMemo } from 'react'
 import { addDays } from '../lib/dates.js'
 import { simulateLedger, summarize } from '../lib/interest.js'
 import { toRates } from '../lib/storage.js'
-import { AuthContext, SavingsContext, ThemeContext } from './contexts.js'
+import { AuthContext, ConfirmContext, SavingsContext, ThemeContext } from './contexts.js'
 
 /** Account, transactions, derived values and every action (see savings.jsx). */
 export const useSavings = () => useContext(SavingsContext)
@@ -28,6 +28,9 @@ export function useAccountBalances() {
     return [a.id, summarize(ledger, today).balance]
   })), [accounts, today, me])
 }
+
+/** confirm({ title, message, confirmLabel, danger }) → Promise<boolean> (see confirm.jsx). */
+export const useConfirm = () => useContext(ConfirmContext)
 
 /** { enabled, ready, user, signInWithGoogle, signOut } (see auth.jsx). */
 export const useAuth = () => useContext(AuthContext)
