@@ -4,6 +4,7 @@ import { useSavings } from '../../state/hooks.js'
 import { TransactionComposer } from '../transactions/TransactionComposer.jsx'
 import { BottomNav } from './BottomNav.jsx'
 import { CloudGate } from './CloudGate.jsx'
+import { PullToRefresh } from './PullToRefresh.jsx'
 import { TopBar } from './TopBar.jsx'
 
 function Toast() {
@@ -32,7 +33,10 @@ function Toast() {
 }
 
 export function AppShell() {
-  const { cloudStatus } = useSavings()
+  const { cloudStatus, cloudMode, actions } = useSavings()
+  // Signed in: fetch the latest from everyone. Signed out there's nothing
+  // online to fetch, so reload the page (which also picks up app updates).
+  const refresh = () => (cloudMode ? actions.reload() : window.location.reload())
   const { pathname, hash } = useLocation()
   // New page: start at the top, or at #section if the link asks for one.
   useEffect(() => {
@@ -53,6 +57,7 @@ export function AppShell() {
   return (
     <div className="min-h-[100dvh]">
       <TopBar />
+      <PullToRefresh onRefresh={refresh} />
       <main className="mx-auto max-w-6xl px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 md:pb-12 md:pt-8">
         <Outlet />
       </main>

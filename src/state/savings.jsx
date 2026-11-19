@@ -170,6 +170,15 @@ export function SavingsProvider({ children }) {
     return () => { cancelled = true }
   }, [userId, reload, uploadLocal, showToast])
 
+  // Coming back to the app: the live connection may have dropped while the
+  // phone slept, so fetch the latest.
+  useEffect(() => {
+    if (!api || !userId) return
+    const onVisible = () => { if (document.visibilityState === 'visible') reload() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [userId, reload])
+
   // Live updates: when anyone changes a shared account, reload (debounced).
   useEffect(() => {
     if (!api || !userId) return
