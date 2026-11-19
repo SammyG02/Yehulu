@@ -36,7 +36,11 @@ export function AppShell() {
   const { cloudStatus, cloudMode, actions } = useSavings()
   // Signed in: fetch the latest from everyone. Signed out there's nothing
   // online to fetch, so reload the page (which also picks up app updates).
-  const refresh = () => (cloudMode ? actions.reload() : window.location.reload())
+  const refresh = async () => {
+    if (!cloudMode) return window.location.reload()
+    const ok = await actions.reload()
+    actions.showToast(ok ? 'Up to date' : "Couldn't refresh. Check your connection.")
+  }
   const { pathname, hash } = useLocation()
   // New page: start at the top, or at #section if the link asks for one.
   useEffect(() => {

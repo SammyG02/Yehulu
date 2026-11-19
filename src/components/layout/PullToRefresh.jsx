@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 
-const THRESHOLD = 70 // px of pull (after easing) that triggers a refresh
+const THRESHOLD = 64 // px of pull (after easing) that triggers a refresh
 const MAX = 110
 
 /**
@@ -21,9 +21,11 @@ export function PullToRefresh({ onRefresh }) {
   useEffect(() => {
     const set = (v) => { pullRef.current = v; setPull(v) }
 
+    const atTop = () => Math.max(window.scrollY, document.scrollingElement?.scrollTop ?? 0) <= 0
+
     const onStart = (e) => {
       // Only from the very top, with one finger, and not while a sheet is open.
-      if (busy.current || window.scrollY > 0 || e.touches.length !== 1 || document.body.style.overflow === 'hidden') {
+      if (busy.current || !atTop() || e.touches.length !== 1 || document.body.style.overflow === 'hidden') {
         start.current = null
         return
       }
@@ -33,12 +35,12 @@ export function PullToRefresh({ onRefresh }) {
     const onMove = (e) => {
       if (start.current === null) return
       const dy = e.touches[0].clientY - start.current
-      if (dy <= 0 || window.scrollY > 0) {
+      if (dy <= 0 || !atTop()) {
         if (pullRef.current) set(0)
         return
       }
       // Ease out so it feels like stretching, and stop the page bouncing.
-      set(Math.min(MAX, dy * 0.5))
+      set(Math.min(MAX, dy * 0.6))
       if (e.cancelable) e.preventDefault()
     }
 
@@ -62,15 +64,15 @@ export function PullToRefresh({ onRefresh }) {
       }
     }
 
-    window.addEventListener('touchstart', onStart, { passive: true })
-    window.addEventListener('touchmove', onMove, { passive: false })
-    window.addEventListener('touchend', onEnd)
-    window.addEventListener('touchcancel', onEnd)
+    document.addEventListener('touchstart', onStart, { passive: true })
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onEnd)
+    document.addEventListener('touchcancel', onEnd)
     return () => {
-      window.removeEventListener('touchstart', onStart)
-      window.removeEventListener('touchmove', onMove)
-      window.removeEventListener('touchend', onEnd)
-      window.removeEventListener('touchcancel', onEnd)
+      document.removeEventListener('touchstart', onStart)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onEnd)
+      document.removeEventListener('touchcancel', onEnd)
     }
   }, [])
 
@@ -79,8 +81,12 @@ export function PullToRefresh({ onRefresh }) {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-20 flex justify-center md:top-16"
-      style={{ transform: `translateY(${pull - 40}px)`, transition: start.current === null ? 'transform 0.2s ease' : 'none' }}
+      className="pointer-events-none fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-40 flex justify-center md:top-16"
+      style={{
+        transform: `translateY(${pull - 40}px)`,
+        opacity: Math.min(1, pull / 30),
+        transition: start.current === null ? 'transform 0.2s ease, opacity 0.2s ease' : 'none',
+      }}
       role="status"
       aria-label={refreshing ? 'Refreshing' : undefined}
     >

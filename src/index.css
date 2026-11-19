@@ -48,6 +48,13 @@
     text-size-adjust: 100%;
   }
 
+  /* No rubber-band bounce at the top: the page's own pull-to-refresh handles
+     that drag (the bounce would also carry the header over its spinner). */
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+
   body {
     @apply bg-canvas font-sans text-ink antialiased;
   }
