@@ -14,6 +14,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // No offline copy: the app always loads fresh from the internet. The
+      // worker this builds only deletes the old cache from phones that had one.
+      selfDestroying: true,
       // Registered by hand in main.jsx, and only in the browser (not inside the native app).
       injectRegister: false,
       registerType: 'autoUpdate',

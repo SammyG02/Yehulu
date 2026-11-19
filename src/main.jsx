@@ -14,18 +14,27 @@ if (Capacitor.isNativePlatform()) {
   // The native app ships its files inside it, so it needs no service worker.
   import('./native.js').then((m) => m.setupNative())
 } else if (import.meta.env.PROD) {
-  // Lets the site open offline once it has been visited (and after "Add to Home Screen").
-  // A home-screen app can stay open for days, so look for a new version each
-  // time it comes back to the front (and hourly); a new one reloads the page.
-  import('virtual:pwa-register').then((m) => m.registerSW({
-    immediate: true,
-    onRegisteredSW(_url, registration) {
-      if (!registration) return
-      const check = () => { if (navigator.onLine) registration.update().catch(() => {}) }
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check() })
-      setInterval(check, 60 * 60 * 1000)
-    },
-  }))
+  // No offline copy: remove the old service worker and its cache from phones
+  // that still have one.
+  navigator.serviceWorker?.getRegistrations()
+    .then((regs) => regs.forEach((r) => r.unregister()))
+    .catch(() => {})
+  window.caches?.keys()
+    .then((names) => names.forEach((n) => window.caches.delete(n)))
+    .catch(() => {})
+
+  // A home-screen app can stay open for days. When it comes back to the front,
+  // see whether a new version is out and reload if so.
+  const current = document.querySelector('script[type="module"][src*="/assets/"]')?.getAttribute('src')
+  const check = async () => {
+    if (!current || !navigator.onLine) return
+    try {
+      const html = await (await fetch('/', { cache: 'no-store' })).text()
+      const latest = html.match(/src="(\/assets\/index-[^"]+\.js)"/)?.[1]
+      if (latest && latest !== current) window.location.reload()
+    } catch { /* offline or blocked: try again next time */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check() })
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
