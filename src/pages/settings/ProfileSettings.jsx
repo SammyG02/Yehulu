@@ -98,7 +98,7 @@ export default function ProfileSettings() {
           <span className="block truncate font-bold">{user.name}</span>
           <span className="block truncate text-sm text-muted">{user.email}</span>
         </span>
-        <Button variant="secondary" size="sm" onClick={askSignOut} className="flex-shrink-0">
+        <Button variant="danger" size="sm" onClick={askSignOut} className="flex-shrink-0">
           <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
         </Button>
       </Card>
