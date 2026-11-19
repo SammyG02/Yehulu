@@ -1,7 +1,7 @@
 import { isDateKey, toDateKey } from './dates.js'
 
 export const STORAGE_KEY = 'yehuluSavings'
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 // Rates are stored as percentages (40 means 40%) so they display exactly as typed.
 export const DEFAULT_ACCOUNT_NAME = 'My savings'
@@ -14,11 +14,24 @@ export const newId = () =>
 
 export const EMPTY_GOAL = { target: null, monthly: 0 }
 
-export const emptyState = (today = toDateKey(new Date())) => ({
-  version: SCHEMA_VERSION,
-  account: { name: DEFAULT_ACCOUNT_NAME, rates: [{ from: today, ...DEFAULT_RATE }] },
+// The first account (and the one older single-account saves become) has a
+// fixed id so loading the same save twice gives the same result.
+export const FIRST_ACCOUNT_ID = 'main'
+export const MAX_ACCOUNTS = 20
+
+/** A saving account: its own name, rate history, goal and transactions. */
+export const emptyAccount = (today = toDateKey(new Date()), { id = newId(), name = DEFAULT_ACCOUNT_NAME, annualRate = DEFAULT_RATE.annualRate } = {}) => ({
+  id,
+  name,
+  rates: [{ from: today, annualRate, serviceCharge: SERVICE_CHARGE }],
   goal: { ...EMPTY_GOAL },
   transactions: [],
+})
+
+export const emptyState = (today = toDateKey(new Date())) => ({
+  version: SCHEMA_VERSION,
+  activeId: FIRST_ACCOUNT_ID,
+  accounts: [emptyAccount(today, { id: FIRST_ACCOUNT_ID })],
 })
 
 /** A percentage from 0 to 100, or null. Blank, null and non-numbers are not 0%. */
@@ -109,20 +122,23 @@ const sanitizeTransaction = (txn) => {
 }
 
 /**
- * Turns anything previously saved (or imported) into the current shape.
+ * One account, from anything previously saved (or imported).
+ * - Up to v3 the whole save was one account: { account: { name, rates }, goal,
+ *   transactions }. Since v4 each account is flat: { id, name, rates, goal,
+ *   transactions }. Both shapes are read here.
  * - v1 had a separate "root capital" with no date. It becomes an "Opening
  *   balance" deposit on the first transaction's date (or today).
  * - v1 and v2 had a single rate. It becomes a rate history with one period
  *   starting on the first transaction's date (or today).
  */
-export function migrate(raw, today) {
-  if (!raw || typeof raw !== 'object') return emptyState(today)
+export function migrateAccount(raw, today, id = FIRST_ACCOUNT_ID) {
+  if (!raw || typeof raw !== 'object') return emptyAccount(today, { id })
 
   const transactions = (Array.isArray(raw.transactions) ? raw.transactions : [])
     .map(sanitizeTransaction)
     .filter(Boolean)
 
-  if (raw.version === undefined) {
+  if (raw.version === undefined && raw.initialBalance !== undefined) {
     const opening = Math.round(Number(raw.initialBalance) * 100) / 100
     if (opening > 0) {
       const date = isDateKey(raw.startDate)
@@ -134,12 +150,35 @@ export function migrate(raw, today) {
 
   // Older saves had one rate: it applies from the first transaction (or today).
   const firstDate = transactions.map(t => t.date).sort()[0] ?? today
+  const legacy = raw.account && typeof raw.account === 'object'
   return {
-    version: SCHEMA_VERSION,
-    account: sanitizeAccount(raw.account, firstDate),
+    id,
+    ...sanitizeAccount(legacy ? raw.account : raw, firstDate),
     goal: sanitizeGoal(raw.goal),
     transactions,
   }
+}
+
+/** The whole save: every account and which one is open. */
+export function migrate(raw, today) {
+  if (!raw || typeof raw !== 'object') return emptyState(today)
+
+  if (!Array.isArray(raw.accounts)) {
+    return { version: SCHEMA_VERSION, activeId: FIRST_ACCOUNT_ID, accounts: [migrateAccount(raw, today)] }
+  }
+
+  const seen = new Set()
+  const accounts = []
+  for (const item of raw.accounts.slice(0, MAX_ACCOUNTS)) {
+    if (!item || typeof item !== 'object') continue
+    let id = item.id != null && String(item.id) !== '' ? String(item.id) : newId()
+    if (seen.has(id)) id = newId()
+    seen.add(id)
+    accounts.push(migrateAccount(item, today, id))
+  }
+  if (accounts.length === 0) return emptyState(today)
+  const activeId = accounts.some(a => a.id === raw.activeId) ? String(raw.activeId) : accounts[0].id
+  return { version: SCHEMA_VERSION, activeId, accounts }
 }
 
 export function loadState() {
@@ -169,7 +208,7 @@ export function parseBackup(text) {
   } catch {
     throw new Error("That file isn't valid JSON.")
   }
-  if (!raw || !Array.isArray(raw.transactions)) {
+  if (!raw || (!Array.isArray(raw.transactions) && !Array.isArray(raw.accounts))) {
     throw new Error("That file doesn't look like a Yehulu backup.")
   }
   return migrate(raw, toDateKey(new Date()))

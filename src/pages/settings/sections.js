@@ -1,4 +1,5 @@
-import { Calculator, Database, Palette } from 'lucide-react'
+import { Calculator, Database, Palette, Wallet } from 'lucide-react'
+import AccountsSettings from './AccountsSettings.jsx'
 import DataSettings from './DataSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
@@ -10,6 +11,13 @@ import { THEME_OPTIONS } from './themeOptions.js'
  * `summary` is the short line under the label, showing the current value.
  */
 export const SETTINGS_SECTIONS = [
+  {
+    path: 'accounts',
+    label: 'Accounts',
+    icon: Wallet,
+    Component: AccountsSettings,
+    summary: ({ accounts, account }) => accounts.length === 1 ? account.name : `${accounts.length} accounts · ${account.name} open`,
+  },
   {
     path: 'logic',
     label: 'Logic',

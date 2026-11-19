@@ -1,6 +1,8 @@
 # Yehulu Savings Tracker
 
-Track a Yehulu savings account: daily compound interest, interest earned so far, projections, and a goal planner. Built mobile-first with a bottom tab bar on phones and a top navigation bar on larger screens. Light and dark themes.
+Track your Yehulu savings accounts: daily compound interest, interest earned so far, projections, and a goal planner. Built mobile-first with a bottom tab bar on phones and a top navigation bar on larger screens. Light and dark themes.
+
+You can keep several accounts (for example Regular and Fixed), each with its own rate, transactions and goal. Switch between them from the account chip in the top bar, and manage them in **Settings → Accounts**.
 
 Data stays on the device (localStorage). Back it up or restore it from **Settings → Data**.
 
@@ -11,7 +13,7 @@ Data stays on the device (localStorage). Back it up or restore it from **Setting
 | **Home** | Balance, today's interest, quick deposit/withdraw, stats, a 30-day chart, goal progress, recent activity |
 | **Activity** | Every transaction grouped by month, with filters. Tap one to edit or delete it |
 | **Growth** | Projection chart (1 month to 2 years), the savings goal planner, and a day-by-day ledger |
-| **Settings** | A short menu: **Logic** (rate, service charge), **Theme**, **Data** (backup, restore, delete). Add sections in `src/pages/settings/sections.js` |
+| **Settings** | A short menu: **Accounts** (open, add, rename, delete), **Logic** (the open account's rate), **Theme**, **Data** (backup, restore, delete). Add sections in `src/pages/settings/sections.js` |
 
 ## How interest is calculated
 

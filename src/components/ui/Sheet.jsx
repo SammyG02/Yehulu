@@ -1,9 +1,12 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 /**
  * Bottom sheet on phones, centred dialog from the md breakpoint up.
  * Closes on Escape or a backdrop tap; locks page scroll while open.
+ * Rendered into <body> so a parent with a blur or transform (like the top
+ * bar) can't trap it.
  */
 export function Sheet({ open, onClose, title, children }) {
   const titleId = useId()
@@ -29,7 +32,7 @@ export function Sheet({ open, onClose, title, children }) {
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:p-6">
       <div className="absolute inset-0 animate-fade-in bg-black/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div
@@ -54,6 +57,7 @@ export function Sheet({ open, onClose, title, children }) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

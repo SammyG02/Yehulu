@@ -9,9 +9,9 @@ import { useTheme } from '../../state/hooks.js'
 import { SETTINGS_SECTIONS } from './sections.js'
 
 function SettingsMenu() {
-  const { account, transactions, currentRate } = useSavings()
+  const { accounts, account, transactions, currentRate } = useSavings()
   const { preference } = useTheme()
-  const context = { account, transactions, currentRate, preference }
+  const context = { accounts, account, transactions, currentRate, preference }
 
   return (
     <Card as="nav" aria-label="Settings sections" className="overflow-hidden">

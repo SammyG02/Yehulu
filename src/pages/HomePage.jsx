@@ -96,7 +96,9 @@ function Stat({ label, value, tone = '', className = '' }) {
 }
 
 function Welcome() {
-  const { currentRate, actions } = useSavings()
+  const { accounts, account, currentRate, actions } = useSavings()
+  // A second (or later) account is empty, not a first visit.
+  const extra = accounts.length > 1
   const steps = [
     { icon: ArrowDownLeft, title: 'Add your deposits', text: 'Past ones too. Yehulu works out the interest you\'ve already earned.' },
     { icon: CalendarClock, title: 'Interest every day', text: `${currentRate.annualRate}% a year minus a ${currentRate.serviceCharge}% charge, added daily so it compounds.` },
@@ -104,7 +106,7 @@ function Welcome() {
   ]
   return (
     <>
-      <PageHeader eyebrow={greeting()} title="Welcome to Yehulu" />
+      <PageHeader eyebrow={greeting()} title={extra ? account.name : 'Welcome to Yehulu'} />
       <div className="grid gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className={HERO}>
           <HeroDecoration />
@@ -112,9 +114,13 @@ function Welcome() {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/85 text-[#0d6b35]">
               <PiggyBank className="h-6 w-6" aria-hidden="true" />
             </span>
-            <h2 className="mt-5 text-2xl font-extrabold tracking-tight sm:text-3xl">Watch your savings grow, day by day.</h2>
+            <h2 className="mt-5 text-2xl font-extrabold tracking-tight sm:text-3xl">
+              {extra ? 'Nothing saved here yet.' : 'Watch your savings grow, day by day.'}
+            </h2>
             <p className="mt-2 text-sm text-[#04160c]/75">
-              Add the money you've saved and see your balance, daily interest and where it's heading.
+              {extra
+                ? `Add the money you've put into ${account.name} to see its balance and daily interest.`
+                : "Add the money you've saved and see your balance, daily interest and where it's heading."}
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <button

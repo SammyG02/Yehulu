@@ -23,24 +23,6 @@ function RateFigures({ period }) {
   )
 }
 
-function NameCard() {
-  const { account, actions } = useSavings()
-  const [name, setName] = useState(account.name)
-  const trimmed = name.trim()
-  const dirty = trimmed !== '' && trimmed !== account.name
-
-  return (
-    <Card as="form" className="p-4" noValidate onSubmit={(e) => { e.preventDefault(); if (dirty) actions.renameAccount(trimmed.slice(0, 40)) }}>
-      <Field id="logic-name" label="Account name">
-        <div className="flex gap-2">
-          <input id="logic-name" type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Yehulu Gold" className={inputClass} />
-          <Button type="submit" variant="secondary" disabled={!dirty}>Save</Button>
-        </div>
-      </Field>
-    </Card>
-  )
-}
-
 /** "Change rate from [date]", or editing an existing period when `editing` is set. */
 function RateForm({ editing, onDone }) {
   const { account, currentRate, today, actions } = useSavings()
@@ -162,14 +144,12 @@ function RateHistory({ editing, onEdit }) {
   )
 }
 
-export default function LogicSettings() {
-  const { currentRate } = useSavings()
+function LogicPanel() {
+  const { account, currentRate } = useSavings()
   const [editing, setEditing] = useState(null)
 
   return (
-    <SettingsPanel title="Logic" description="How interest is worked out. Rates differ between account types.">
-      <NameCard />
-
+    <SettingsPanel title="Logic" description={`How interest is worked out for ${account.name}. Each account has its own rate.`}>
       <Card className="overflow-hidden">
         <div className="space-y-3 p-4">
           <div>
@@ -189,4 +169,10 @@ export default function LogicSettings() {
       <RateHistory editing={editing} onEdit={setEditing} />
     </SettingsPanel>
   )
+}
+
+/** Keyed by account so a half-filled form never carries over to another account. */
+export default function LogicSettings() {
+  const { account } = useSavings()
+  return <LogicPanel key={account.id} />
 }

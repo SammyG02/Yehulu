@@ -24,7 +24,7 @@ const HORIZONS = [
 
 export default function GrowthPage() {
   usePageTitle('Growth')
-  const { transactions, today, currentRate, actions } = useSavings()
+  const { account, transactions, today, currentRate, actions } = useSavings()
   const [horizon, setHorizon] = useState(90)
   const ledger = useLedger(horizon)
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
@@ -74,7 +74,8 @@ export default function GrowthPage() {
       )}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-2">
-        <GoalPlanner />
+        {/* Keyed so the form shows the right goal after switching accounts. */}
+        <GoalPlanner key={account.id} />
         {hasTransactions && <DailyBreakdown ledger={ledger} today={today} />}
       </div>
     </>

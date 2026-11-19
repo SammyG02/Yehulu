@@ -1,8 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_ACCOUNT_NAME, DEFAULT_RATE, emptyState, exportState, migrate, parseBackup, sanitizeAccount, sanitizeGoal, toRates,
+  DEFAULT_ACCOUNT_NAME, DEFAULT_RATE, emptyState, exportState, migrate as migrateAll, parseBackup, sanitizeAccount, sanitizeGoal, toRates,
 } from './storage.js'
+
+// These tests cover one account's data. Since v4 a save holds several accounts;
+// `migrate` here returns the open one in the pre-v4 shape so the checks read the
+// same. The multi-account wrapper itself is tested in accounts.test.js.
+const only = (state) => {
+  const a = state.accounts.find(x => x.id === state.activeId)
+  return { version: state.version, account: { name: a.name, rates: a.rates }, goal: a.goal, transactions: a.transactions }
+}
+const migrate = (raw, today) => only(migrateAll(raw, today))
 
 const TODAY = '2026-11-16'
 const txn = (over = {}) => ({ id: 'a', type: 'deposit', amount: 100, date: '2026-10-01', note: '', ...over })
@@ -18,7 +27,7 @@ const v2 = (over = {}) => ({
 
 test('anything that is not an object loads as an empty state', () => {
   for (const raw of [null, undefined, 'hello', 42, true, NaN]) {
-    assert.deepEqual(migrate(raw, TODAY), emptyState(TODAY), String(raw))
+    assert.deepEqual(migrate(raw, TODAY), only(emptyState(TODAY)), String(raw))
   }
 })
 
@@ -162,7 +171,7 @@ test('migrating twice changes nothing (load, save, load is stable)', () => {
 
 test('a backup restores to exactly the state that was exported', () => {
   const state = migrate(v2(), TODAY)
-  assert.deepEqual(parseBackup(exportState(state)), state)
+  assert.deepEqual(only(parseBackup(exportState(state))), state)
 })
 
 test('parseBackup rejects files that are not Yehulu backups, with a readable message', () => {

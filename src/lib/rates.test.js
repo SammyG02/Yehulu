@@ -2,7 +2,16 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { dailyRate, findNewOverdraft, findOverdraft, periodOn, planGoal, simulateLedger, summarize } from './interest.js'
 import { addDays } from './dates.js'
-import { exportState, migrate, parseBackup, sanitizeRates, toRates } from './storage.js'
+import { exportState, migrate as migrateAll, parseBackup, sanitizeRates, toRates } from './storage.js'
+
+// These tests cover one account's data. Since v4 a save holds several accounts;
+// `migrate` here returns the open one in the pre-v4 shape so the checks read the
+// same. The multi-account wrapper itself is tested in accounts.test.js.
+const only = (state) => {
+  const a = state.accounts.find(x => x.id === state.activeId)
+  return { version: state.version, account: { name: a.name, rates: a.rates }, goal: a.goal, transactions: a.transactions }
+}
+const migrate = (raw, today) => only(migrateAll(raw, today))
 
 // S1-2: rate history. Numbered as in QA's S1-2 test plan. A period's `from`
 // date is inclusive: interest credited that day uses the new rate.
@@ -119,7 +128,7 @@ const v2 = (over = {}) => ({
 
 test('9: a v2 save becomes one period from its first transaction, with identical numbers', () => {
   const state = migrate(v2(), TODAY)
-  assert.equal(state.version, 3)
+  assert.equal(state.version, 4)
   // The service charge is fixed at 10%, whatever an old save said.
   assert.deepEqual(state.account.rates, [{ from: D(-80), annualRate: 35, serviceCharge: 10 }])
   const before = run(v2().transactions, { annualRate: 0.35, serviceCharge: 0.1 })
@@ -136,9 +145,9 @@ test('10-11: v2 with no transactions starts today; with only future ones, on the
   assert.equal(periodOn(future.account.rates, TODAY).annualRate, 35)
 })
 
-test('12: a v1 save goes straight to v3', () => {
+test('12: a v1 save goes straight to the current version', () => {
   const state = migrate({ initialBalance: 5000, transactions: [{ id: 1, type: 'deposit', amount: 200, date: D(-30) }] }, TODAY)
-  assert.equal(state.version, 3)
+  assert.equal(state.version, 4)
   assert.deepEqual(state.account.rates, [{ from: D(-30), annualRate: 40, serviceCharge: 10 }])
 })
 
@@ -160,9 +169,9 @@ test('14: migrating twice is stable, and backups round-trip the rate history', (
   once.account.rates.push({ from: D(-10), annualRate: 30, serviceCharge: 10 })
   const twice = migrate(JSON.parse(JSON.stringify(once)), TODAY)
   assert.deepEqual(twice, once)
-  assert.deepEqual(parseBackup(exportState(once)).account.rates, once.account.rates)
-  // An old v2 backup file restores as v3.
-  assert.equal(parseBackup(JSON.stringify(v2())).version, 3)
+  assert.deepEqual(only(parseBackup(exportState(once))).account.rates, once.account.rates)
+  // An old v2 backup file restores as the current version.
+  assert.equal(parseBackup(JSON.stringify(v2())).version, 4)
 })
 
 // ---- user rules (2026-11-18) -----------------------------------------------

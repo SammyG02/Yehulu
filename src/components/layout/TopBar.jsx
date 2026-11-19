@@ -1,13 +1,14 @@
-import { Link, NavLink } from 'react-router'
+import { NavLink } from 'react-router'
 import { Plus } from 'lucide-react'
 import { useSavings } from '../../state/hooks.js'
+import { AccountSwitcher } from '../accounts/AccountSwitcher.jsx'
 import { Button } from '../ui/Button.jsx'
 import { Logo } from './Logo.jsx'
 import { NAV_ITEMS } from './navigation.js'
 
-/** Sticky top bar. Phones get the logo only; md and up get the full section nav. */
+/** Sticky top bar: logo, section nav (md and up) and the account switcher. */
 export function TopBar() {
-  const { account, currentRate, actions } = useSavings()
+  const { actions } = useSavings()
 
   return (
     <header className="sticky top-0 z-30 border-b border-line/70 bg-canvas/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
@@ -22,7 +23,7 @@ export function TopBar() {
                   to={to}
                   end={end}
                   className={({ isActive }) =>
-                    `flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    `flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition lg:px-4 ${
                       isActive ? 'bg-brand-soft text-brand-ink' : 'text-muted hover:bg-sunken hover:text-ink'
                     }`}
                 >
@@ -35,11 +36,9 @@ export function TopBar() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <Link to="/settings/logic" className="max-w-[10rem] truncate rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-ink md:hidden">
-            {currentRate.annualRate}% · {account.name}
-          </Link>
-          <Button className="hidden md:inline-flex" onClick={() => actions.openComposer()}>
-            <Plus className="h-4 w-4" aria-hidden="true" /> New transaction
+          <AccountSwitcher />
+          <Button className="hidden md:inline-flex md:max-lg:px-3" onClick={() => actions.openComposer()} aria-label="New transaction">
+            <Plus className="h-4 w-4" aria-hidden="true" /> <span className="md:max-lg:hidden">New transaction</span>
           </Button>
         </div>
       </div>
