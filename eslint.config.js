@@ -11,7 +11,7 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: { ...globals.browser },
+      globals: { ...globals.browser, __APP_VERSION__: 'readonly' },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
@@ -23,8 +23,8 @@ export default [
     },
   },
   {
-    // Pure-logic tests run in Node.
-    files: ['src/lib/**/*.test.js'],
+    // Pure-logic tests and build config run in Node.
+    files: ['src/lib/**/*.test.js', '*.config.js'],
     languageOptions: { globals: { ...globals.node } },
   },
 ]

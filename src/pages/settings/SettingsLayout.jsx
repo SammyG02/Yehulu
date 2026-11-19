@@ -62,6 +62,7 @@ export default function SettingsLayout() {
       <div className="md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:items-start md:gap-6">
         <aside className={`${atList ? '' : 'hidden'} md:sticky md:top-24 md:block`}>
           <SettingsMenu />
+          <p className="mt-3 text-center text-xs text-muted">Yehulu · version {__APP_VERSION__}</p>
         </aside>
         <div className="min-w-0">
           <Outlet />
