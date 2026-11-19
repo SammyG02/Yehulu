@@ -160,6 +160,50 @@ function Welcome() {
   )
 }
 
+/**
+ * A shared account where you haven't put money in yet: your balance is zero,
+ * but the account isn't empty, so show what the others have saved.
+ */
+function SharedStart() {
+  const { account, allTransactions, actions } = useSavings()
+  const recent = [...allTransactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+  return (
+    <>
+      <PageHeader eyebrow={greeting()} title={account.name} />
+      <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-3 md:space-y-5">
+          <div className={HERO}>
+            <HeroDecoration />
+            <div className="relative">
+              <p className="text-sm font-semibold text-[#04160c]/70">Your balance</p>
+              <p className="mt-1 text-4xl font-extrabold tracking-tight">{formatMoney(0)}</p>
+              <p className="mt-2 max-w-md text-sm text-[#04160c]/75">
+                You haven't added your own money to {account.name} yet. Each member earns interest on their own deposits.
+              </p>
+              <button
+                type="button"
+                onClick={() => actions.openComposer('deposit')}
+                className="mt-5 h-12 w-full rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black sm:w-auto"
+              >
+                Add your deposit
+              </button>
+            </div>
+          </div>
+          <MembersCard />
+        </div>
+        {recent.length > 0 && (
+          <Card className="overflow-hidden">
+            <CardHeader title="Recent activity" action={<ButtonLink to="/activity" variant="link">See all</ButtonLink>} className="pb-2" />
+            <ul className="divide-y divide-line">
+              {recent.map(txn => <TransactionRow key={txn.id} txn={txn} />)}
+            </ul>
+          </Card>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function HomePage() {
   usePageTitle('Home')
   const { account, transactions, rates, today, shared } = useSavings()
@@ -171,7 +215,7 @@ export default function HomePage() {
     [transactions],
   )
 
-  if (transactions.length === 0) return <Welcome />
+  if (transactions.length === 0) return shared ? <SharedStart /> : <Welcome />
 
   return (
     <>

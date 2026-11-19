@@ -71,6 +71,20 @@ function ComposerForm({ composer, onClose }) {
         onChange={(v) => { setType(v); clearError() }}
       />
 
+      {pickMember && (
+        <Field
+          id="composer-member"
+          label="Whose money is this?"
+          hint={memberId === me ? 'Counts as your money.' : `Counts as ${memberName(memberId)}'s money. They earn the interest on it.`}
+        >
+          <select id="composer-member" value={memberId} onChange={(e) => { setMemberId(e.target.value); clearError() }} className={inputClass}>
+            {[...account.members].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : 0)).map(m => (
+              <option key={m.id} value={m.id}>{m.id === me ? `Me (${m.name})` : `${m.name} (${m.role === 'owner' ? 'owner' : 'member'})`}</option>
+            ))}
+          </select>
+        </Field>
+      )}
+
       <div className="rounded-2xl bg-sunken px-4 pb-4 pt-3 text-center">
         <label htmlFor="composer-amount" className="text-xs font-semibold uppercase tracking-wider text-muted">
           Amount in Birr
@@ -97,13 +111,6 @@ function ComposerForm({ composer, onClose }) {
         </div>
       </div>
 
-      {pickMember && (
-        <Field id="composer-member" label="Whose money">
-          <select id="composer-member" value={memberId} onChange={(e) => { setMemberId(e.target.value); clearError() }} className={inputClass}>
-            {account.members.map(m => <option key={m.id} value={m.id}>{m.id === me ? `You (${m.name})` : m.name}</option>)}
-          </select>
-        </Field>
-      )}
       {editing && shared && original.memberId && original.memberId !== me && (
         <p className="rounded-xl bg-sunken px-4 py-2.5 text-sm text-muted">
           This is <span className="font-semibold text-ink">{memberName(original.memberId)}</span>'s transaction.

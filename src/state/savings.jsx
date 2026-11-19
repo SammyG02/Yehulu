@@ -184,7 +184,7 @@ export function SavingsProvider({ children }) {
   useEffect(() => {
     if (!api || !userId) return
     let timer
-    const later = () => { clearTimeout(timer); timer = setTimeout(reload, 500) }
+    const later = () => { clearTimeout(timer); timer = setTimeout(reload, 200) }
     const channel = supabase.channel(`yehulu-${userId}`)
     for (const table of ['accounts', 'account_members', 'rates', 'transactions']) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, later)
