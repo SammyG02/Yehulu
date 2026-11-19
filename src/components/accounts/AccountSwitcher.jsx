@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Check, ChevronDown, Plus, Settings2 } from 'lucide-react'
+import { Check, ChevronDown, Plus, Settings2, Users, Wallet } from 'lucide-react'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
 import { DEFAULT_RATE, MAX_ACCOUNTS } from '../../lib/storage.js'
@@ -8,6 +8,7 @@ import { useAccountBalances, useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { AffixInput, Field, inputClass } from '../ui/Field.jsx'
 import { Sheet } from '../ui/Sheet.jsx'
+import { accountKind, accountKindText } from './accountKind.js'
 
 const isPercent = (v) => String(v).trim() !== '' && Number(v) >= 0 && Number(v) <= 100
 
@@ -62,14 +63,13 @@ export function NewAccountForm({ onCreated, onCancel }) {
 }
 
 /** Every account with its rate and balance today; tap one to open it. */
-export function AccountList({ onPick }) {
-  const { accounts, account: active, today, actions } = useSavings()
-  const balances = useAccountBalances()
-
+function AccountRows({ list, active, balances, today, onPick, actions }) {
   return (
     <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
-      {accounts.map(a => {
+      {list.map(a => {
         const isActive = a.id === active.id
+        const info = accountKind(a)
+        const kindText = accountKindText(info)
         return (
           <li key={a.id}>
             <button
@@ -78,11 +78,19 @@ export function AccountList({ onPick }) {
               onClick={() => { actions.switchAccount(a.id); onPick?.(a.id) }}
               className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${isActive ? 'bg-brand-soft' : 'hover:bg-sunken/70'}`}
             >
+              <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${info.kind === 'own' ? 'bg-sunken text-muted' : 'bg-accent-soft text-accent'}`}>
+                {info.kind === 'own' ? <Wallet className="h-4 w-4" aria-hidden="true" /> : <Users className="h-4 w-4" aria-hidden="true" />}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-sm font-semibold ${isActive ? 'text-brand-ink' : ''}`}>{a.name}</span>
-                <span className="block text-xs text-muted">{periodOn(a.rates, today).annualRate}% a year</span>
+                <span className="block truncate text-xs text-muted">
+                  {kindText ?? `${periodOn(a.rates, today).annualRate}% a year`}
+                </span>
               </span>
-              <span className="text-sm font-bold tabular-nums">{formatMoney(balances.get(a.id) ?? 0)}</span>
+              <span className="text-right">
+                <span className="block text-sm font-bold tabular-nums">{formatMoney(balances.get(a.id) ?? 0)}</span>
+                {info.kind !== 'own' && <span className="block text-[11px] text-muted">your money</span>}
+              </span>
               <span className="flex w-5 justify-end">
                 {isActive && <Check className="h-4 w-4 text-brand-ink" aria-label="Open" />}
               </span>
@@ -91,6 +99,31 @@ export function AccountList({ onPick }) {
         )
       })}
     </ul>
+  )
+}
+
+/** Your own accounts first, then the ones friends invited you to. */
+export function AccountList({ onPick }) {
+  const { accounts, account: active, today, actions } = useSavings()
+  const balances = useAccountBalances()
+  const mine = accounts.filter(a => accountKind(a).kind !== 'joined')
+  const joined = accounts.filter(a => accountKind(a).kind === 'joined')
+  const props = { active, balances, today, onPick, actions }
+
+  if (joined.length === 0) return <AccountRows list={mine} {...props} />
+  return (
+    <div className="space-y-4">
+      {mine.length > 0 && (
+        <section>
+          <h3 className="mb-1.5 px-1 text-xs font-bold uppercase tracking-wide text-muted">My accounts</h3>
+          <AccountRows list={mine} {...props} />
+        </section>
+      )}
+      <section>
+        <h3 className="mb-1.5 px-1 text-xs font-bold uppercase tracking-wide text-muted">Shared with me</h3>
+        <AccountRows list={joined} {...props} />
+      </section>
+    </div>
   )
 }
 
@@ -109,6 +142,7 @@ export function AccountSwitcher() {
         aria-haspopup="dialog"
         className="flex max-w-[12rem] items-center gap-1 rounded-full bg-brand-soft py-1 pl-3 pr-2 text-xs font-semibold text-brand-ink transition hover:brightness-95 md:max-w-[11rem] md:py-1.5 md:text-sm lg:max-w-[16rem]"
       >
+        {accountKind(account).kind !== 'own' && <Users className="h-3.5 w-3.5 flex-shrink-0" aria-label="Shared" />}
         <span className="truncate">{account.name}</span>
         <span className="flex-shrink-0 font-medium opacity-75">· {currentRate.annualRate}%</span>
         <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />

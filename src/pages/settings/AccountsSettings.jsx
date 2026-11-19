@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { NewAccountForm } from '../../components/accounts/AccountSwitcher.jsx'
+import { accountKind, accountKindText } from '../../components/accounts/accountKind.js'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card } from '../../components/ui/Card.jsx'
@@ -37,6 +38,7 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
   const { today, actions } = useSavings()
   const confirm = useConfirm()
   const count = account.transactions.length
+  const kindText = accountKindText(accountKind(account))
   // In a friend's shared account only the owner renames or deletes it.
   const mayManage = !account.cloud || account.role === 'owner'
 
@@ -65,9 +67,9 @@ function AccountRow({ account, isActive, balance, onRename, onlyOne }) {
           <span className={`block truncate text-sm font-semibold ${isActive ? 'text-brand-ink' : ''}`}>
             {account.name}
             {isActive && <span className="ml-2 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-brand">Open</span>}
-            {account.members?.length > 1 && <span className="ml-2 rounded-full bg-sunken px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">Shared · {account.members.length}</span>}
           </span>
           <span className="block truncate text-xs text-muted">
+            {kindText && <span className="font-semibold text-accent">{kindText} · </span>}
             {periodOn(account.rates, today).annualRate}% a year · {count} transaction{count === 1 ? '' : 's'}
           </span>
         </span>
