@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { simulateLedger, summarize, findOverdraft, dailyRate, effectiveAnnualRate, planGoal } from './interest.js'
+import { simulateLedger, summarize, findOverdraft, findNewOverdraft, dailyRate, effectiveAnnualRate, planGoal } from './interest.js'
 import { addDays } from './dates.js'
 
 const TODAY = '2026-11-16'
@@ -165,4 +165,31 @@ test('worked example: 200k, then 5k out, then 100k in, gives Br 304,995.50 on No
   assert.equal(Math.round(s.interestToDate * 100) / 100, 10005.5)
   assert.equal(s.feesPaid, 10)
   assert.equal(s.netSaved, 295000)
+})
+
+// Editing recalculates the whole history as if the transaction had always been
+// that way. Expected values checked by hand with a separate calculation.
+test('worked example: edits and deletes recalculate everything, and fees follow the final amount', () => {
+  const rates = [{ from: '2026-10-01', annualRate: 0.4, serviceCharge: 0.1 }]
+  const today = '2026-11-19'
+  const base = [
+    { id: 'd1', type: 'deposit', amount: 200000, date: '2026-10-05' },
+    { id: 'w1', type: 'withdrawal', amount: 5000, date: '2026-10-20' },
+    { id: 'd2', type: 'deposit', amount: 100000, date: '2026-11-05' },
+  ]
+  const edit = (list, id, changes) => list.map(t => (t.id === id ? { ...t, ...changes } : t))
+  const result = (list) => {
+    const s = summarize(simulateLedger({ transactions: list, rates, fromDate: today, endDate: today }), today)
+    return [Math.round(s.balance * 100) / 100, Math.round(s.interestToDate * 100) / 100, s.feesPaid]
+  }
+  assert.deepEqual(result(edit(base, 'w1', { amount: 8000 })), [301899.27, 9915.27, 16])
+  assert.deepEqual(result(edit(base, 'w1', { date: '2026-11-10' })), [305101.23, 10111.23, 10])
+  assert.deepEqual(result(edit(base, 'd2', { amount: 50000, date: '2026-11-01' })), [254550.69, 9560.69, 10])
+  assert.deepEqual(result(base.filter(t => t.id !== 'w1')), [310155.88, 10155.88, 0])
+  // Editing a withdrawal again and again: one fee, on the final amount.
+  const thrice = [6000, 7000, 8000].reduce((list, amount) => edit(list, 'w1', { amount }), base)
+  assert.equal(result(thrice)[2], 16)
+  // Edits that would push the balance below zero are caught (the app refuses them).
+  assert.equal(findNewOverdraft(base, edit(base, 'd1', { amount: 3000 }), rates), '2026-10-20')
+  assert.equal(findNewOverdraft(base, edit(base, 'w1', { amount: 250000 }), rates), '2026-10-20')
 })
