@@ -14,7 +14,17 @@ if (Capacitor.isNativePlatform()) {
   import('./native.js').then((m) => m.setupNative())
 } else if (import.meta.env.PROD) {
   // Lets the site open offline once it has been visited (and after "Add to Home Screen").
-  import('virtual:pwa-register').then((m) => m.registerSW({ immediate: true }))
+  // A home-screen app can stay open for days, so look for a new version each
+  // time it comes back to the front (and hourly); a new one reloads the page.
+  import('virtual:pwa-register').then((m) => m.registerSW({
+    immediate: true,
+    onRegisteredSW(_url, registration) {
+      if (!registration) return
+      const check = () => { if (navigator.onLine) registration.update().catch(() => {}) }
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check() })
+      setInterval(check, 60 * 60 * 1000)
+    },
+  }))
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
