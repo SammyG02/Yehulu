@@ -144,3 +144,25 @@ test('interest by month: every month since the first deposit, newest first, matc
   assert.equal(months[1].balance, ledger.find(r => r.date === '2026-10-31').balance)
   assert.deepEqual(interestByMonth([], today), [])
 })
+
+// Checked by hand with a separate calculation (2026-11-19): 200,000 on Oct 5,
+// 5,000 out on Oct 20 (Br 10 fee), 100,000 on Nov 5, at 40% minus the 10% charge.
+test('worked example: 200k, then 5k out, then 100k in, gives Br 304,995.50 on Nov 19', () => {
+  const rates = [{ from: '2026-10-01', annualRate: 0.4, serviceCharge: 0.1 }]
+  const transactions = [
+    { id: 1, type: 'deposit', amount: 200000, date: '2026-10-05' },
+    { id: 2, type: 'withdrawal', amount: 5000, date: '2026-10-20' },
+    { id: 3, type: 'deposit', amount: 100000, date: '2026-11-05' },
+  ]
+  const today = '2026-11-19'
+  const ledger = simulateLedger({ transactions, rates, fromDate: today, endDate: today })
+  const at = (d) => Math.round(ledger.find(r => r.date === d).balance * 100) / 100
+  assert.equal(at('2026-10-06'), 200197.26)
+  assert.equal(at('2026-10-20'), 197964.48)
+  assert.equal(at('2026-11-05'), 301111.74)
+  const s = summarize(ledger, today)
+  assert.equal(Math.round(s.balance * 100) / 100, 304995.5)
+  assert.equal(Math.round(s.interestToDate * 100) / 100, 10005.5)
+  assert.equal(s.feesPaid, 10)
+  assert.equal(s.netSaved, 295000)
+})
