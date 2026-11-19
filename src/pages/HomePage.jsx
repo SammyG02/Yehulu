@@ -184,7 +184,7 @@ function Welcome() {
               >
                 Add your first deposit
               </button>
-              <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/85 text-[#04160c] hover:bg-white">
+              <ButtonLink to="/settings/logic" variant="ghost" size="lg" className="bg-white/85 !text-[#04160c] hover:bg-white">
                 {isOwner ? `Set interest rate (${currentRate.annualRate}%)` : `Interest rate: ${currentRate.annualRate}%`}
               </ButtonLink>
             </div>
