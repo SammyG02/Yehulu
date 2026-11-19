@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, PiggyBank, TriangleAlert } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, ChevronDown, ChevronRight, PiggyBank, TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
+import { MonthlyInterestSheet } from '../components/MonthlyInterestSheet.jsx'
 import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
@@ -86,13 +87,22 @@ function OverdraftBanner({ date, today }) {
   )
 }
 
-function Stat({ label, value, tone = '', className = '' }) {
-  return (
-    <Card className={`min-w-0 p-3 sm:p-4 ${className}`}>
-      <p className="text-xs font-semibold text-muted">{label}</p>
+function Stat({ label, value, tone = '', className = '', onClick }) {
+  const body = (
+    <>
+      <p className="flex items-center justify-between gap-1 text-xs font-semibold text-muted">
+        {label}
+        {onClick && <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />}
+      </p>
       <p className={`mt-1 text-base font-extrabold tracking-tight sm:text-lg ${tone}`}>
         <Amount value={value} />
       </p>
+    </>
+  )
+  if (!onClick) return <Card className={`min-w-0 p-3 sm:p-4 ${className}`}>{body}</Card>
+  return (
+    <Card as="button" type="button" onClick={onClick} className={`min-w-0 p-3 text-left transition hover:border-brand sm:p-4 ${className}`}>
+      {body}
     </Card>
   )
 }
@@ -263,6 +273,7 @@ export default function HomePage() {
     [viewTransactions],
   )
   const everyone = scope === 'all'
+  const [monthsOpen, setMonthsOpen] = useState(false)
 
   if (viewTransactions.length === 0) return shared ? <SharedStart /> : <Welcome />
 
@@ -276,8 +287,9 @@ export default function HomePage() {
           <BalanceCard summary={summary} />
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4">
-            <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" />
-            <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" />
+            {/* Both open the month-by-month history. */}
+            <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" onClick={() => setMonthsOpen(true)} />
+            <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" onClick={() => setMonthsOpen(true)} />
             {everyone
               ? <PutInByMember total={summary.netSaved} />
               : <Stat label={viewMember ? `${viewMember.name} put in` : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />}
@@ -317,6 +329,7 @@ export default function HomePage() {
           </Card>
         </div>
       </div>
+      <MonthlyInterestSheet open={monthsOpen} onClose={() => setMonthsOpen(false)} ledger={ledger} />
     </>
   )
 }

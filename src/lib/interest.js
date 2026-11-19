@@ -225,3 +225,23 @@ export function simulateGroupLedger({ groups, rates, fromDate, endDate }) {
     return total
   })
 }
+
+/**
+ * Interest month by month, newest first, from a ledger that covers today.
+ * Only days before today count (today's interest is credited tonight), the
+ * same rule as summarize(). `balance` is the balance at the end of the month,
+ * or so far for the current month.
+ *   [{ month: '2026-11', interest, balance, current }]
+ */
+export function interestByMonth(ledger, today) {
+  const months = new Map()
+  for (const row of ledger) {
+    if (row.date >= today) break
+    const month = row.date.slice(0, 7)
+    const entry = months.get(month) ?? { month, interest: 0, balance: 0, current: month === today.slice(0, 7) }
+    entry.interest += row.interest
+    entry.balance = row.balance
+    months.set(month, entry)
+  }
+  return [...months.values()].reverse()
+}

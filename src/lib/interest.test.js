@@ -121,3 +121,26 @@ test('a shared account: everyone earns on their own money, and the days add up',
   // Same as one person when only one has transactions.
   assert.deepEqual(simulateGroupLedger({ groups: [a, []], rates, fromDate: endDate, endDate }), simulateLedger({ transactions: a, rates, fromDate: endDate, endDate }))
 })
+
+test('interest by month: every month since the first deposit, newest first, matching the totals', async () => {
+  const { interestByMonth } = await import('./interest.js')
+  const rates = [{ from: '2026-01-01', annualRate: 0.4, serviceCharge: 0.1 }]
+  const today = '2026-11-19'
+  const ledger = simulateLedger({
+    transactions: [
+      { id: 'a', type: 'deposit', amount: 100000, date: '2026-09-20' },
+      { id: 'b', type: 'withdrawal', amount: 20000, date: '2026-10-10' },
+    ],
+    rates, fromDate: today, endDate: '2026-12-31',
+  })
+  const months = interestByMonth(ledger, today)
+  assert.deepEqual(months.map(m => m.month), ['2026-11', '2026-10', '2026-09'])
+  assert.deepEqual(months.map(m => m.current), [true, false, false])
+  const summary = summarize(ledger, today)
+  const total = months.reduce((s, m) => s + m.interest, 0)
+  assert.ok(Math.abs(total - summary.interestToDate) < 1e-9)
+  assert.ok(Math.abs(months[0].interest - summary.interestThisMonth) < 1e-9)
+  // October's closing balance is the balance on Oct 31.
+  assert.equal(months[1].balance, ledger.find(r => r.date === '2026-10-31').balance)
+  assert.deepEqual(interestByMonth([], today), [])
+})
