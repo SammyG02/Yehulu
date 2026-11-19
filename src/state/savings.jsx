@@ -47,6 +47,9 @@ const api = supabase ? cloudApi(supabase) : null
 // the upload offer doesn't make duplicates.
 const uploadedKey = (userId) => `yehuluUploaded:${userId}`
 const wasUploaded = (userId) => { try { return Boolean(userId && localStorage.getItem(uploadedKey(userId))) } catch { return false } }
+// This device's own accounts go to the first person who signs in here, not to
+// every Google account added later.
+const uploadedByAnyone = () => { try { return Object.keys(localStorage).some(k => k.startsWith('yehuluUploaded:')) } catch { return false } }
 const markUploaded = (userId) => { try { localStorage.setItem(uploadedKey(userId), '1') } catch { /* ignore */ } }
 
 export function SavingsProvider({ children }) {
@@ -147,17 +150,16 @@ export function SavingsProvider({ children }) {
   // Load on sign-in. A first sign-in with nothing in the cloud uploads this
   // device's accounts, or starts one empty account (unless joining a friend's).
   useEffect(() => {
-    if (!userId) {
-      setCloudData(null)
-      setCloudError(null)
-      return
-    }
+    // Switching to another person: drop the last one's data straight away.
+    setCloudData(null)
+    setCloudError(null)
+    if (!userId) return
     let cancelled = false
     ;(async () => {
       const accounts = await reload()
       if (cancelled || !accounts || accounts.length > 0) return
       try {
-        const uploaded = await uploadLocal()
+        const uploaded = uploadedByAnyone() ? 0 : await uploadLocal()
         if (uploaded === 0 && !window.location.pathname.startsWith('/join/')) {
           await api.createAccount(emptyAccount(toDateKey(new Date()), { id: newId() }), userId)
         }
