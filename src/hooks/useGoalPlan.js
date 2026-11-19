@@ -4,7 +4,8 @@ import { useSavings } from '../state/hooks.js'
 
 /** Runs the goal planner for a saved goal, with and without the monthly top-up. */
 export function useGoalPlan(goal) {
-  const { transactions, rates, today } = useSavings()
+  // Whoever is being viewed: you, or the member you're viewing as.
+  const { viewTransactions: transactions, rates, today } = useSavings()
   return useMemo(() => {
     if (!goal.target) return null
     return {

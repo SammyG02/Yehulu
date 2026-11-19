@@ -88,13 +88,14 @@ function MemberPicker({ value, onChange }) {
 }
 
 function ComposerForm({ composer, onClose }) {
-  const { today, actions, account, me, isOwner, shared, memberName } = useSavings()
+  const { today, actions, account, me, isOwner, shared, memberName, viewMember } = useSavings()
   const editing = composer.mode === 'edit'
   const original = composer.txn
   // The owner of an online account records money for anyone in it, and can
   // add people by name right here.
   const pickMember = !editing && isOwner && Boolean(account.cloud)
-  const [memberId, setMemberId] = useState(me)
+  // Viewing as a member? Their money is the likely choice.
+  const [memberId, setMemberId] = useState(viewMember && isOwner ? viewMember.id : me)
 
   const [type, setType] = useState(editing ? original.type : composer.type)
   const [amount, setAmount] = useState(editing ? String(original.amount) : '')

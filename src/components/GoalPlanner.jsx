@@ -90,8 +90,12 @@ export function GoalPlanner() {
 
 /** Compact goal progress for the Home page. */
 export function GoalCard({ balance }) {
-  const { goal } = useSavings()
+  const { viewGoal: goal, viewMember } = useSavings()
   const result = useGoalPlan(goal)
+
+  if (!goal.target && viewMember) {
+    return <Card className="p-4 text-sm text-muted">{viewMember.name} hasn't set a savings goal.</Card>
+  }
 
   if (!goal.target) {
     return (
@@ -116,7 +120,7 @@ export function GoalCard({ balance }) {
           <p className="text-sm font-semibold text-muted">Goal</p>
           <p className="text-lg font-extrabold tabular-nums">{formatMoney(goal.target)}</p>
         </div>
-        <Link to="/growth#goal" className="text-sm font-semibold text-brand-ink hover:text-brand-ink">Edit</Link>
+        {!viewMember && <Link to="/growth#goal" className="text-sm font-semibold text-brand-ink hover:text-brand-ink">Edit</Link>}
       </div>
       <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)} aria-label="Goal progress">
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${progress * 100}%` }} />

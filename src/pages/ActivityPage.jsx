@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus, ReceiptText } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
+import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { Button } from '../components/ui/Button.jsx'
@@ -27,8 +28,8 @@ const matches = (filter, txn, today) => {
 
 export default function ActivityPage() {
   usePageTitle('Activity')
-  // Everyone's transactions in a shared account (as far as you may see them).
-  const { allTransactions: transactions, today, actions } = useSavings()
+  // Follows the View menu: everyone's (as far as you may see), yours, or one member's.
+  const { viewTransactions: transactions, today, actions } = useSavings()
   const [filter, setFilter] = useState('all')
 
   const { months, totalIn, totalOut, count } = useMemo(() => {
@@ -63,8 +64,9 @@ export default function ActivityPage() {
       <PageHeader
         title="Activity"
         subtitle={`${transactions.length} transaction${transactions.length === 1 ? '' : 's'} · tap one to edit`}
-        action={addButton}
+        action={<div className="flex items-center gap-2"><ScopeSwitch />{addButton}</div>}
       />
+      <ViewingBanner />
 
       {transactions.length === 0 ? (
         <Card className="flex flex-col items-center px-6 py-12 text-center">

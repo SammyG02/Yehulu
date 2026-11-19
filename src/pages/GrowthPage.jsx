@@ -3,8 +3,8 @@ import { ChartLine } from 'lucide-react'
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { DailyBreakdown } from '../components/DailyBreakdown.jsx'
-import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
-import { GoalPlanner } from '../components/GoalPlanner.jsx'
+import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
+import { GoalCard, GoalPlanner } from '../components/GoalPlanner.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
@@ -25,7 +25,7 @@ const HORIZONS = [
 
 export default function GrowthPage() {
   usePageTitle('Growth')
-  const { account, viewTransactions, today, currentRate, actions, scope } = useSavings()
+  const { account, viewTransactions, today, currentRate, actions, scope, viewMember } = useSavings()
   const [horizon, setHorizon] = useState(90)
   const ledger = useLedger(horizon)
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
@@ -39,6 +39,7 @@ export default function GrowthPage() {
         subtitle={scope === 'all' ? "Where the whole account is heading. Your goal below is about your own money." : "Where your balance is heading, and when you'll hit your goal."}
         action={<ScopeSwitch />}
       />
+      <ViewingBanner />
 
       {hasTransactions ? (
         <Card className="mb-3 md:mb-5">
@@ -79,8 +80,10 @@ export default function GrowthPage() {
       )}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-2">
-        {/* Keyed so the form shows the right goal after switching accounts. */}
-        <GoalPlanner key={account.id} />
+        {/* Your own goal can be planned; a member's is shown as they see it; the
+            whole account has no goal. Keyed so the form follows the open account. */}
+        {scope === 'me' && <GoalPlanner key={account.id} />}
+        {viewMember && <GoalCard balance={summary.balance} />}
         {hasTransactions && <DailyBreakdown ledger={ledger} today={today} />}
       </div>
     </>

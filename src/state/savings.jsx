@@ -230,17 +230,29 @@ export function SavingsProvider({ children }) {
   // look at the whole account or just their own money. The owner starts on
   // the whole account: it's their account.
   const canSeeAll = shared && (isOwner || Boolean(account.membersSeeAll))
+  // `scope` is 'all', 'me', or another member's id ("view as" that member).
   const [scopeChoice, setScopeChoice] = useState({})
-  const scope = canSeeAll ? (scopeChoice[account.id] ?? (isOwner ? 'all' : 'me')) : 'me'
+  const wanted = scopeChoice[account.id] ?? (isOwner ? 'all' : 'me')
+  const scope = !canSeeAll ? 'me'
+    : wanted === 'all' || wanted === 'me' || (wanted !== me && account.members?.some(m => m.id === wanted)) ? wanted
+      : 'me'
   const setScope = useCallback((next) => setScopeChoice(c => ({ ...c, [account.id]: next })), [account.id])
-  const viewTransactions = scope === 'all' ? account.transactions : mine
+  const viewMember = scope === 'all' || scope === 'me' ? null : account.members.find(m => m.id === scope)
+  const viewTransactions = useMemo(
+    () => (scope === 'all' ? account.transactions : viewMember ? ofMember(account.transactions, viewMember.id) : mine),
+    [scope, viewMember, account.transactions, mine],
+  )
   // One list per person, for the whole-account ledger.
   const viewGroups = useMemo(() => {
-    if (scope !== 'all') return [mine]
+    if (scope !== 'all') return [viewTransactions]
     const byMember = new Map()
     for (const t of account.transactions) byMember.set(t.memberId, [...(byMember.get(t.memberId) ?? []), t])
     return [...byMember.values()]
-  }, [scope, mine, account.transactions])
+  }, [scope, viewTransactions, account.transactions])
+  const viewGoal = useMemo(
+    () => (viewMember ? (viewMember.goal ?? { target: null, monthly: 0 }) : account.goal),
+    [viewMember, account.goal],
+  )
   const canEdit = useCallback((txn) => !account.cloud || isOwner || txn.memberId === me, [account.cloud, isOwner, me])
   const memberName = useCallback((id) => {
     if (id === me) return 'You'
@@ -556,6 +568,8 @@ export function SavingsProvider({ children }) {
     setScope,
     viewTransactions,
     viewGroups,
+    viewMember,
+    viewGoal,
     canEdit,
     memberName,
     accounts: data.accounts,
@@ -568,7 +582,7 @@ export function SavingsProvider({ children }) {
     composer,
     toast,
     actions,
-  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canSeeAll, scope, setScope, viewTransactions, viewGroups, canEdit, memberName, account, mine, rates, currentRate,
+  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canSeeAll, scope, setScope, viewTransactions, viewGroups, viewMember, viewGoal, canEdit, memberName, account, mine, rates, currentRate,
     composer, toast, actions])
 
   return <SavingsContext.Provider value={value}>{children}</SavingsContext.Provider>

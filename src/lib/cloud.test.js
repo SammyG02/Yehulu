@@ -64,7 +64,14 @@ test('members list the owner first, with names from profiles', () => {
 
 test('name-only members are named by the owner and marked as guests', () => {
   const grandma = buildAccounts(rows)[1].members.find(m => m.id === 'g-1')
-  assert.deepEqual(grandma, { id: 'g-1', role: 'guest', guest: true, name: 'Grandma', avatarUrl: null })
+  assert.deepEqual(grandma, {
+    id: 'g-1', role: 'guest', guest: true, name: 'Grandma', avatarUrl: null, goal: { target: null, monthly: 0 },
+  })
+})
+
+test("each member's own goal comes along, for viewing as them", () => {
+  const friend = buildAccounts(rows)[1].members.find(m => m.id === FRIEND)
+  assert.deepEqual(friend.goal, { target: 9000, monthly: 0 })
 })
 
 test('transactions keep whose they are; amounts become numbers', () => {

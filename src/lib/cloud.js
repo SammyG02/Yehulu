@@ -58,6 +58,7 @@ export function buildAccounts({ userId, accounts, members, profiles, rates, tran
           guest: m.role === 'guest',
           name: (m.role === 'guest' ? m.guest_name : profileById.get(m.user_id)?.name) || 'Member',
           avatarUrl: m.role === 'guest' ? null : profileById.get(m.user_id)?.avatar_url ?? null,
+          goal: sanitizeGoal({ target: m.goal_target, monthly: m.goal_monthly }),
         })),
         transactions: (txnsOf.get(a.id) ?? []).map(fromRow),
         activity: (activity.get(a.id) ?? []).map(r => ({

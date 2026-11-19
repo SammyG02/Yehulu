@@ -4,7 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChartLine, PiggyBank, Trian
 import { PageHeader } from '../components/layout/AppShell.jsx'
 import { ChartLegend, LazyBalanceChart } from '../components/charts/LazyBalanceChart.jsx'
 import { MembersCard } from '../components/accounts/MembersCard.jsx'
-import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
+import { ScopeSwitch, ViewingBanner } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
@@ -29,13 +29,13 @@ function HeroDecoration() {
 }
 
 function BalanceCard({ summary }) {
-  const { actions, shared, scope } = useSavings()
+  const { actions, shared, scope, viewMember } = useSavings()
   return (
     <div className={HERO}>
       <HeroDecoration />
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-[#04160c]/70">{!shared ? 'Total balance' : scope === 'all' ? 'Account balance' : 'Your balance'}</p>
+          <p className="text-sm font-semibold text-[#04160c]/70">{!shared ? 'Total balance' : scope === 'all' ? 'Account balance' : viewMember ? `${viewMember.name}'s balance` : 'Your balance'}</p>
           {/* Interest earned for today; it's added to the balance when the day ends. */}
           <span
             className="whitespace-nowrap rounded-full bg-white/85 px-2.5 py-1 text-xs font-semibold text-[#0d6b35]"
@@ -166,28 +166,34 @@ function Welcome() {
  * but the account isn't empty, so show what the others have saved.
  */
 function SharedStart() {
-  const { account, allTransactions, actions } = useSavings()
+  const { account, allTransactions, actions, viewMember, isOwner } = useSavings()
   const recent = [...allTransactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
+  const who = viewMember?.name
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
+      <ViewingBanner />
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">
           <div className={HERO}>
             <HeroDecoration />
             <div className="relative">
-              <p className="text-sm font-semibold text-[#04160c]/70">Your balance</p>
+              <p className="text-sm font-semibold text-[#04160c]/70">{who ? `${who}'s balance` : 'Your balance'}</p>
               <p className="mt-1 text-4xl font-extrabold tracking-tight">{formatMoney(0)}</p>
               <p className="mt-2 max-w-md text-sm text-[#04160c]/75">
-                You haven't added your own money to {account.name} yet. Each member earns interest on their own deposits.
+                {who
+                  ? `${who} has no money in ${account.name} yet.`
+                  : `You haven't added your own money to ${account.name} yet. Each member earns interest on their own deposits.`}
               </p>
+              {(!who || isOwner) && (
               <button
                 type="button"
                 onClick={() => actions.openComposer('deposit')}
                 className="mt-5 h-12 w-full rounded-xl bg-[#04160c] px-5 font-bold text-white transition hover:bg-black sm:w-auto"
               >
-                Add your deposit
+                {who ? `Add a deposit for ${who}` : 'Add your deposit'}
               </button>
+              )}
             </div>
           </div>
           <MembersCard />
@@ -207,7 +213,7 @@ function SharedStart() {
 
 export default function HomePage() {
   usePageTitle('Home')
-  const { account, transactions, viewTransactions, rates, today, shared, scope } = useSavings()
+  const { account, transactions, viewTransactions, rates, today, shared, scope, viewMember } = useSavings()
   const ledger = useLedger(30)
   const overdraft = useMemo(() => findOverdraft(transactions, rates), [transactions, rates])
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])
@@ -222,7 +228,8 @@ export default function HomePage() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
-      {overdraft && <OverdraftBanner date={overdraft} today={today} />}
+      <ViewingBanner />
+      {!viewMember && overdraft && <OverdraftBanner date={overdraft} today={today} />}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">
@@ -231,7 +238,7 @@ export default function HomePage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4">
             <Stat label="Interest earned" value={summary.interestToDate} tone="text-brand-ink" />
             <Stat label="This month" value={summary.interestThisMonth} tone="text-brand-ink" />
-            <Stat label={everyone ? 'Everyone put in' : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />
+            <Stat label={everyone ? 'Everyone put in' : viewMember ? `${viewMember.name} put in` : 'You put in'} value={summary.netSaved} className="col-span-2 sm:col-span-1" />
           </div>
 
           <Card>
