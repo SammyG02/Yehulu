@@ -37,7 +37,7 @@ function MonthList({ months, whose, onPick }) {
         note={best && months.length > 1 ? `Best month: ${monthName(best.month)}` : null}
       />
       {months.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted">No interest yet. It starts the day after the first deposit.</p>
+        <p className="py-8 text-center text-sm text-muted">No interest yet. The first deposit's interest is added overnight.</p>
       ) : (
         <ul className="mt-3 divide-y divide-line">
           {months.map(m => (

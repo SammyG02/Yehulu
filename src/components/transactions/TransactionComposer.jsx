@@ -132,7 +132,7 @@ function ComposerForm({ composer, onClose }) {
   const dateHint = date > today
     ? 'Scheduled. It counts from that date.'
     : isDeposit
-      ? 'Starts earning interest the day after.'
+      ? 'Earns interest from this day, added overnight.'
       : 'Stops earning interest from this day.'
 
   return (

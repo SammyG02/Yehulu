@@ -171,7 +171,8 @@ function LogicPanel() {
           <ul className="space-y-1 text-xs leading-relaxed text-muted">
             <li><span className="font-semibold text-ink">Service charge:</span> {SERVICE_CHARGE}% of interest, set by Yehulu.</li>
             <li><span className="font-semibold text-ink">Withdrawal fee:</span> 0.2% of each withdrawal.</li>
-            <li>Interest is added every day, so it compounds. Deposits start earning the day after they're made.</li>
+            <li>Each day's interest is worked out on that day's closing balance and added overnight, so it compounds. Deposits earn from the day they're made.</li>
+            <li>Interest and the charge are rounded to the santim each day, like on a Yehulu statement.</li>
           </ul>
         </div>
         {isOwner

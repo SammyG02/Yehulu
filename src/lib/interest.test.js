@@ -18,27 +18,54 @@ const run = (transactions, { days = 30, rates = RATES } = {}) => {
 const near = (actual, expected, label) =>
   assert.ok(Math.abs(actual - expected) < 0.005, `${label}: got ${actual}, expected ${expected}`)
 
+// A separate, plain model of Yehulu's rules (as read from real statements), to
+// check the engine against: each day, interest = round(closing x rate / 365),
+// charge = round(interest x 10%), all in whole santim. Events: [day, amount]
+// with day counted from today. Returns the balance on the morning of `until`.
+const bank = (events, until, { annualRate = 0.4, serviceCharge = 0.1 } = {}) => {
+  const round = (x) => Math.round(x)
+  let cents = 0
+  for (let day = Math.min(...events.map(e => e[0])); day < until; day++) {
+    for (const [d, amount] of events) if (d === day) cents += Math.round(amount * 100)
+    const gross = cents > 0 ? round(cents * annualRate / 365) : 0
+    cents += gross - round(gross * serviceCharge)
+  }
+  for (const [d, amount] of events) if (d === until) cents += Math.round(amount * 100)
+  return cents / 100
+}
+
 test('rate: 40% minus 10% fee, compounded daily, is about 43.31% a year', () => {
   near(dailyRate(RATES), 0.36 / 365, 'daily rate')
   near(effectiveAnnualRate(RATES), 0.433075, 'effective annual')
 })
 
-test('a deposit earns nothing on the day it is made', () => {
+test('a deposit earns interest on the day it is made, credited overnight', () => {
   const { ledger, summary } = run([deposit(0, 10000)])
   assert.equal(summary.balance, 10000)
-  assert.equal(summary.interestToday, 0)
-  near(ledger[1].interest, 10000 * dailyRate(RATES), 'first interest is the next day')
+  // 10,000 x 40% / 365 = 10.958... -> 10.96; charge 10% = 1.096 -> 1.10.
+  assert.equal(ledger[0].grossInterest, 10.96)
+  assert.equal(ledger[0].serviceCharge, 1.1)
+  assert.equal(summary.interestToday, 9.86)
+  assert.equal(ledger[1].opening, 10009.86)
+})
+
+test('real statement day: 131,258.46 earns 143.84, charge 14.38', () => {
+  const { ledger } = run([deposit(0, 131258.46)])
+  assert.equal(ledger[0].grossInterest, 143.84)
+  assert.equal(ledger[0].serviceCharge, 14.38)
+  assert.equal(ledger[0].balance, 131387.92)
 })
 
 test('interest compounds: yesterday\'s interest earns interest', () => {
-  // Deposited 90 days ago -> earned on 89 full days so far.
+  // Deposited 90 days ago -> 90 days of interest so far (the deposit day counts).
   const { summary } = run([deposit(-90, 10000)])
-  near(summary.balance, 10000 * g ** 89, 'balance after 89 interest days')
+  assert.equal(summary.balance, bank([[-90, 10000]], 0))
+  assert.ok(Math.abs(summary.balance - 10000 * g ** 90) < 0.5, 'close to smooth compounding')
 })
 
-test('each deposit compounds only from its own next day (no double counting)', () => {
+test('each deposit compounds from its own day (no double counting)', () => {
   const { summary } = run([deposit(-90, 10000), deposit(-30, 10000)])
-  near(summary.balance, 10000 * g ** 89 + 10000 * g ** 29, 'two deposits')
+  assert.equal(summary.balance, bank([[-90, 10000], [-30, 10000]], 0))
 })
 
 test('withdrawn money stops earning on the day it is taken out', () => {
@@ -53,14 +80,15 @@ test('the projection is exactly the horizon length and future deposits land on t
   assert.equal(upcoming.length, 30)
   assert.equal(upcoming[9].deposits, 0)
   assert.equal(upcoming[10].deposits, 1000)
-  near(summary.projectedBalance, 5000 * g ** 29 + 1000 * g ** 19, 'projected end balance')
+  // The last row's balance includes that day's interest.
+  assert.equal(summary.projectedBalance, bank([[0, 5000], [10, 1000]], 30))
 })
 
 test('the account rate is used, including zero', () => {
   const { summary } = run([deposit(-30, 1000)], { rates: { annualRate: 0, serviceCharge: 0.1 } })
   assert.equal(summary.balance, 1000)
   const higher = run([deposit(-30, 1000)], { rates: { annualRate: 0.5, serviceCharge: 0 } })
-  near(higher.summary.balance, 1000 * (1 + 0.5 / 365) ** 29, '50% account')
+  assert.equal(higher.summary.balance, bank([[-30, 1000]], 0, { annualRate: 0.5, serviceCharge: 0 }))
 })
 
 test('interest to date and net saved', () => {
@@ -147,7 +175,7 @@ test('interest by month: every month since the first deposit, newest first, matc
 
 // Checked by hand with a separate calculation (2026-11-19): 200,000 on Oct 5,
 // 5,000 out on Oct 20 (Br 10 fee), 100,000 on Nov 5, at 40% minus the 10% charge.
-test('worked example: 200k, then 5k out, then 100k in, gives Br 304,995.50 on Nov 19', () => {
+test('worked example: 200k, then 5k out, then 100k in, gives Br 305,301.38 on Nov 19', () => {
   const rates = [{ from: '2026-10-01', annualRate: 0.4, serviceCharge: 0.1 }]
   const transactions = [
     { id: 1, type: 'deposit', amount: 200000, date: '2026-10-05' },
@@ -157,12 +185,12 @@ test('worked example: 200k, then 5k out, then 100k in, gives Br 304,995.50 on No
   const today = '2026-11-19'
   const ledger = simulateLedger({ transactions, rates, fromDate: today, endDate: today })
   const at = (d) => Math.round(ledger.find(r => r.date === d).balance * 100) / 100
-  assert.equal(at('2026-10-06'), 200197.26)
-  assert.equal(at('2026-10-20'), 197964.48)
-  assert.equal(at('2026-11-05'), 301111.74)
+  assert.equal(at('2026-10-06'), 200394.71)
+  assert.equal(at('2026-10-20'), 198164.67)
+  assert.equal(at('2026-11-05'), 301413.73)
   const s = summarize(ledger, today)
-  assert.equal(Math.round(s.balance * 100) / 100, 304995.5)
-  assert.equal(Math.round(s.interestToDate * 100) / 100, 10005.5)
+  assert.equal(Math.round(s.balance * 100) / 100, 305301.38)
+  assert.equal(Math.round(s.interestToDate * 100) / 100, 10311.38)
   assert.equal(s.feesPaid, 10)
   assert.equal(s.netSaved, 295000)
 })
@@ -182,10 +210,10 @@ test('worked example: edits and deletes recalculate everything, and fees follow 
     const s = summarize(simulateLedger({ transactions: list, rates, fromDate: today, endDate: today }), today)
     return [Math.round(s.balance * 100) / 100, Math.round(s.interestToDate * 100) / 100, s.feesPaid]
   }
-  assert.deepEqual(result(edit(base, 'w1', { amount: 8000 })), [301899.27, 9915.27, 16])
-  assert.deepEqual(result(edit(base, 'w1', { date: '2026-11-10' })), [305101.23, 10111.23, 10])
-  assert.deepEqual(result(edit(base, 'd2', { amount: 50000, date: '2026-11-01' })), [254550.69, 9560.69, 10])
-  assert.deepEqual(result(base.filter(t => t.id !== 'w1')), [310155.88, 10155.88, 0])
+  assert.deepEqual(result(edit(base, 'w1', { amount: 8000 })), [302205.17, 10221.17, 16])
+  assert.deepEqual(result(edit(base, 'w1', { date: '2026-11-10' })), [305407.09, 10417.09, 10])
+  assert.deepEqual(result(edit(base, 'd2', { amount: 50000, date: '2026-11-01' })), [254806.84, 9816.84, 10])
+  assert.deepEqual(result(base.filter(t => t.id !== 'w1')), [310461.75, 10461.75, 0])
   // Editing a withdrawal again and again: one fee, on the final amount.
   const thrice = [6000, 7000, 8000].reduce((list, amount) => edit(list, 'w1', { amount }), base)
   assert.equal(result(thrice)[2], 16)
