@@ -9,7 +9,7 @@ import { Card } from '../components/ui/Card.jsx'
 import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
 import { formatDate, formatSigned } from '../lib/format.js'
-import { withdrawalFee } from '../lib/interest.js'
+import { feeOf } from '../lib/interest.js'
 import { useSavings } from '../state/hooks.js'
 
 const FILTERS = [
@@ -45,7 +45,7 @@ export default function ActivityPage() {
       const group = groups.get(key)
       group.items.push(txn)
       // Money out includes each withdrawal's 0.2% fee.
-      const out = txn.type === 'deposit' ? 0 : txn.amount + withdrawalFee(txn.amount)
+      const out = txn.type === 'deposit' ? 0 : txn.amount + feeOf(txn)
       group.net += txn.type === 'deposit' ? txn.amount : -out
       if (txn.type === 'deposit') inSum += txn.amount
       else outSum += out

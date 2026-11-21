@@ -1,8 +1,9 @@
-import { Calculator, CircleUserRound, Database, Palette, Users, Wallet } from 'lucide-react'
+import { Calculator, CircleUserRound, Database, FileText, Palette, Users, Wallet } from 'lucide-react'
 import AccountsSettings from './AccountsSettings.jsx'
 import ProfileSettings from './ProfileSettings.jsx'
 import SharingSettings from './SharingSettings.jsx'
 import DataSettings from './DataSettings.jsx'
+import ImportSettings from './ImportSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
 import { THEME_OPTIONS } from './themeOptions.js'
@@ -26,6 +27,13 @@ export const SETTINGS_SECTIONS = [
     icon: Wallet,
     Component: AccountsSettings,
     summary: ({ accounts, account }) => accounts.length === 1 ? account.name : `${accounts.length} accounts · ${account.name} open`,
+  },
+  {
+    path: 'import',
+    label: 'Import statement',
+    icon: FileText,
+    Component: ImportSettings,
+    summary: () => 'Yehulu PDF statements',
   },
   {
     path: 'sharing',

@@ -36,7 +36,7 @@ export function TransactionRow({ txn, showYear = true }) {
             <span className="truncate">
               {who && <span className="font-semibold text-ink">{who} · </span>}
               {dateText}
-              {!isDeposit && ` · +${formatMoney(withdrawalFee(txn.amount))} fee`}
+              {!isDeposit && (txn.noFee ? ' · no fee' : ` · +${formatMoney(withdrawalFee(txn.amount))} fee`)}
             </span>
           </span>
         </span>

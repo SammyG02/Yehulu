@@ -20,6 +20,9 @@ export const WITHDRAWAL_FEE_RATE = 0.002
 
 /** The fee for withdrawing `amount`, rounded to the santim. */
 export const withdrawalFee = (amount) => Math.round(amount * WITHDRAWAL_FEE_RATE * 100) / 100
+
+/** The fee a transaction pays: 0.2% on withdrawals, none on deposits or no-fee debits. */
+export const feeOf = (txn) => (txn.type === 'withdrawal' && !txn.noFee ? withdrawalFee(txn.amount) : 0)
 const CENT = 0.005
 
 // Money is counted in whole santim inside the ledger, like the bank does.
@@ -85,7 +88,8 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
       flow.deposits += toCents(txn.amount)
     } else {
       flow.withdrawals += toCents(txn.amount)
-      flow.fees += toCents(withdrawalFee(txn.amount))
+      // Some debits (e.g. standing orders) have no fee on a Yehulu statement.
+      if (!txn.noFee) flow.fees += toCents(withdrawalFee(txn.amount))
     }
     flows.set(txn.date, flow)
   }

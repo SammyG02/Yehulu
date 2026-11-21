@@ -101,6 +101,8 @@ function ComposerForm({ composer, onClose }) {
   const [amount, setAmount] = useState(editing ? String(original.amount) : '')
   const [date, setDate] = useState(editing ? original.date : today)
   const [note, setNote] = useState(editing ? original.note : '')
+  // Some debits have no fee on a Yehulu statement (e.g. standing orders).
+  const [noFee, setNoFee] = useState(editing ? Boolean(original.noFee) : false)
   const [error, setError] = useState(null)
 
   const isDeposit = type === 'deposit'
@@ -119,7 +121,7 @@ function ComposerForm({ composer, onClose }) {
     if (!(value > 0)) return setError('Enter an amount greater than zero.')
     if (!date) return setError('Pick a date.')
 
-    const txn = { type, amount: value, date, note: note.trim(), ...(pickMember ? { memberId } : {}) }
+    const txn = { type, amount: value, date, note: note.trim(), noFee: type === 'withdrawal' && noFee, ...(pickMember ? { memberId } : {}) }
     const problem = editing ? actions.updateTransaction(original.id, txn) : actions.addTransaction(txn)
     if (problem) return setError(problem)
     onClose()
@@ -196,7 +198,7 @@ function ComposerForm({ composer, onClose }) {
         />
       </Field>
 
-      {!isDeposit && parseFloat(amount) > 0 && (
+      {!isDeposit && parseFloat(amount) > 0 && !noFee && (
         <p className="flex justify-between rounded-xl bg-sunken px-4 py-2.5 text-sm">
           <span className="text-muted">Withdrawal fee (0.2%)</span>
           <span className="font-semibold tabular-nums">
@@ -204,6 +206,12 @@ function ComposerForm({ composer, onClose }) {
             <span className="font-normal text-muted"> · {formatMoney(parseFloat(amount) + withdrawalFee(parseFloat(amount)))} in total</span>
           </span>
         </p>
+      )}
+      {!isDeposit && (
+        <label className="flex items-center gap-2 px-1 text-sm text-muted">
+          <input type="checkbox" checked={noFee} onChange={(e) => setNoFee(e.target.checked)} className="h-4 w-4 accent-brand" />
+          No fee (e.g. a standing order)
+        </label>
       )}
 
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm font-medium text-neg">{error}</p>}

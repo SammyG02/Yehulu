@@ -64,7 +64,7 @@ export function buildAccounts({ userId, accounts, members, profiles, rates, tran
         })),
         transactions: (txnsOf.get(a.id) ?? []).map(fromRow),
         activity: (activity.get(a.id) ?? []).map(r => ({
-          memberKey: r.member_key, type: r.type, amount: Number(r.amount), date: r.date,
+          memberKey: r.member_key, type: r.type, amount: Number(r.amount), date: r.date, noFee: Boolean(r.no_fee),
           rates: memberRatesFrom(r.member_rates),
         })),
       }
@@ -85,6 +85,8 @@ const fromRow = (t) => ({
   date: t.date,
   note: t.note ?? '',
   memberId: t.member_id,
+  ...(t.no_fee ? { noFee: true } : {}),
+  ...(t.ref ? { ref: t.ref } : {}),
 })
 
 const check = ({ data, error }) => {
@@ -112,6 +114,10 @@ const toRateRows = (accountId, rates) =>
 
 const toTxnRow = (accountId, t) => ({
   id: t.id, account_id: accountId, member_id: t.memberId, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
+  // Only sent when used, so adding ordinary transactions keeps working on a
+  // database without these columns yet.
+  ...(t.type === 'withdrawal' && t.noFee ? { no_fee: true } : {}),
+  ...(t.ref ? { ref: t.ref } : {}),
 })
 
 /** Every change the app can make, one function each. All throw on failure. */
@@ -144,9 +150,17 @@ export const cloudApi = (client) => ({
   async addTransaction(accountId, txn) {
     check(await client.from('transactions').insert(toTxnRow(accountId, txn)))
   },
+  /** Many at once (statement import), in chunks the server accepts. */
+  async addTransactions(accountId, txns) {
+    for (let i = 0; i < txns.length; i += 500) {
+      check(await client.from('transactions').insert(txns.slice(i, i + 500).map(t => toTxnRow(accountId, t))))
+    }
+  },
   async updateTransaction(id, changes) {
-    const { type, amount, date, note } = changes
-    check(await client.from('transactions').update({ type, amount, date, note: note ?? '' }).eq('id', id))
+    const { type, amount, date, note, noFee, hadNoFee } = changes
+    const row = { type, amount, date, note: note ?? '' }
+    if (noFee || hadNoFee) row.no_fee = type === 'withdrawal' && Boolean(noFee)
+    check(await client.from('transactions').update(row).eq('id', id))
   },
   async deleteTransaction(id) {
     check(await client.from('transactions').delete().eq('id', id))

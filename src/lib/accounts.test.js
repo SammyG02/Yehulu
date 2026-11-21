@@ -79,3 +79,14 @@ test('a new account starts empty with the chosen rate', () => {
     id: 'n', name: 'Holiday', rates: [{ from: TODAY, annualRate: 30, serviceCharge: 10 }], goal: { target: null, monthly: 0 }, transactions: [],
   })
 })
+
+test('imported details survive saving: no-fee debits and the statement reference', () => {
+  const raw = { version: 4, activeId: 'a', accounts: [account('a', { transactions: [
+    txn({ id: 's', type: 'withdrawal', amount: 10, noFee: true, ref: 'FT1:-1000' }),
+    txn({ id: 'd', type: 'deposit', amount: 5, noFee: true }),
+  ] })] }
+  const [s, d] = migrate(raw, TODAY).accounts[0].transactions
+  assert.equal(s.noFee, true)
+  assert.equal(s.ref, 'FT1:-1000')
+  assert.equal(d.noFee, undefined, 'deposits never have the flag')
+})

@@ -2,11 +2,12 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import { useToday } from '../hooks/useToday.js'
 import { AuthContext, ConfirmContext, SavingsContext } from './contexts.js'
 import { cloudApi, fetchAccounts } from '../lib/cloud.js'
+import { newLines } from '../lib/statement.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn } from '../lib/interest.js'
 import {
-  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, memberRateList, ratesOf, sanitizeRates, saveState, STORAGE_KEY, toRates,
+  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, memberRateList, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
 } from '../lib/storage.js'
 import { supabase } from '../lib/supabase.js'
 
@@ -313,7 +314,7 @@ export function SavingsProvider({ children }) {
     const error = overdraftError(memberOf(original), apply(current.transactions))
     if (error) return error
     setData(d => withAccount(d, a => ({ ...a, transactions: apply(a.transactions) })))
-    remote(() => api.updateTransaction(id, { ...original, ...allowed }))
+    remote(() => api.updateTransaction(id, { ...original, ...allowed, hadNoFee: Boolean(original.noFee) }))
     showToast('Transaction updated')
     return null
   }, [setData, overdraftError, remote, showToast])
@@ -410,6 +411,64 @@ export function SavingsProvider({ children }) {
     }
     showToast(`${name} created`)
     return created.id
+  }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, remote, showToast])
+
+  /**
+   * Imports transactions read from Yehulu statements.
+   *   into: 'new' (creates an account called `name`) or an existing account id
+   *   memberId: whose money, in a shared account (owner only; default you)
+   *   rates: the statement's rates [{ from, annualRate }], used if `useRates`
+   * Lines already imported before (same statement reference) are skipped.
+   * Returns { added, skipped, accountId } or { error }.
+   */
+  const importStatement = useCallback(({ into, name, memberId, transactions, rates, useRates }) => {
+    const state = dataRef.current
+    const cloud = modeRef.current
+    const rateList = rates.map(r => ({ from: r.from, annualRate: r.annualRate, serviceCharge: SERVICE_CHARGE }))
+    const records = transactions.map(t => ({ ...t, id: newId() }))
+
+    if (into === 'new') {
+      if (state.accounts.length >= MAX_ACCOUNTS) return { error: `You can have up to ${MAX_ACCOUNTS} accounts.` }
+      const base = emptyAccount(today, { name, annualRate: rateList.at(-1)?.annualRate ?? 40 })
+      const created = { ...base, rates: rateList.length ? sanitizeRates(rateList) : base.rates, transactions: records.map(t => (cloud ? { ...t, memberId: userId } : t)) }
+      const shown = cloud
+        ? { ...created, cloud: true, role: 'owner', ownerId: userId, membersSeeAll: true, inviteCode: null, activity: [],
+            members: [{ id: userId, role: 'owner', name: auth?.user?.name ?? 'You', avatarUrl: auth?.user?.avatarUrl ?? null, rates: null }] }
+        : created
+      setData(d => ({ ...d, activeId: created.id, accounts: [...d.accounts, shown] }))
+      if (cloud) {
+        writeCloudActive(created.id)
+        remote(() => api.createAccount(created, userId))
+      }
+      showToast(`${records.length} transactions imported into ${name}`)
+      return { added: records.length, skipped: 0, accountId: created.id }
+    }
+
+    const target = state.accounts.find(a => a.id === into)
+    if (!target) return { error: 'That account is gone.' }
+    if (target.cloud && target.role !== 'owner' && memberId && memberId !== userId) return { error: 'Only the owner can import for someone else.' }
+    const who = target.cloud ? (memberId ?? userId) : null
+    const fresh = newLines(records, ofMember(target.transactions, who)).map(t => (target.cloud ? { ...t, memberId: who } : t))
+    const skipped = records.length - fresh.length
+    // Rates: a member's own (shared account, someone else) or the account's.
+    const ownRates = useRates && rateList.length && target.cloud && target.members?.length > 1 && who !== target.ownerId
+    setData(d => withAccount(d, a => ({
+      ...a,
+      transactions: [...a.transactions, ...fresh],
+      ...(useRates && rateList.length && !ownRates && (!a.cloud || a.role === 'owner') ? { rates: sanitizeRates(rateList) } : {}),
+      ...(ownRates ? { members: a.members.map(m => (m.id === who ? { ...m, rates: sanitizeRates(rateList) } : m)) } : {}),
+    }), into))
+    if (target.cloud) {
+      remote(async () => {
+        if (fresh.length) await api.addTransactions(target.id, fresh)
+        if (ownRates) await api.setMemberRates(target.id, who, sanitizeRates(rateList))
+        else if (useRates && rateList.length && target.role === 'owner') await api.setRates(target.id, sanitizeRates(rateList))
+      })
+    }
+    if (state.activeId !== into) setData(d => ({ ...d, activeId: into }))
+    if (target.cloud && state.activeId !== into) writeCloudActive(into)
+    showToast(skipped ? `${fresh.length} imported, ${skipped} already there` : `${fresh.length} transactions imported`)
+    return { added: fresh.length, skipped, accountId: into }
   }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, remote, showToast])
 
   /** Deletes an account (owner only, never the last one). Returns true if deleted. */
@@ -549,6 +608,7 @@ export function SavingsProvider({ children }) {
     updateGoal,
     renameAccount,
     addAccount,
+    importStatement,
     deleteAccount,
     switchAccount,
     changeRates,
@@ -580,7 +640,7 @@ export function SavingsProvider({ children }) {
     closeComposer: () => setComposer(null),
     showToast,
     dismissToast,
-  }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, deleteAccount,
+  }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, importStatement, deleteAccount,
     switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 

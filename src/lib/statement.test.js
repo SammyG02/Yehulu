@@ -1,0 +1,165 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { adjustmentFor, buildImport, compareWithStatement, newLines, parseStatementPages } from './statement.js'
+import { simulateLedger } from './interest.js'
+
+// Made-up statements laid out like a real Yehulu "Account Statement" PDF (the
+// positions PDF.js gives): debits right-aligned before the Credit column,
+// credits starting in it, the closing balance right-aligned in the last one.
+// Real statements hold private details, so none are kept in the code.
+const COL = { book: 38, ref: 114, desc: 189, value: 264, debit: 339, credit: 414, balance: 490 }
+const W = 5 // width per character, roughly
+const text = (str, x, y) => ({ str, x, y, width: str.length * W })
+const right = (str, edge, y) => text(str, edge - str.length * W, y)
+const money = (cents) => (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
+const DAY = (key) => { const [y, m, d] = key.split('-'); return `${d} ${'JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC'.split(' ')[m - 1]} ${y.slice(2)}` }
+
+const header = (y) => [
+  text('Account Statement', 38, 732), text('Account :', 38, 715), text('3000123456', 170, 715),
+  text('Customer :', 38, 698), text('30011111', 170, 698), text('TEST SAVER', 433, 698),
+  ...['Book Date', 'Reference', 'Description', 'Value Date', 'Debit', 'Credit', 'Closing Balance']
+    .map((h, i) => text(h, Object.values(COL)[i], y)),
+]
+
+/** rows: [{ book, ref, type, value, amount (cents, signed), balance (cents) }] -> one page of items */
+const page = (rows, { withHeader = true } = {}) => {
+  const items = withHeader ? header(664) : [text('30 September 2026', 496, 768)]
+  let y = withHeader ? 640 : 740
+  for (const r of rows) {
+    items.push(text(DAY(r.book), COL.book, y), text(r.ref.slice(0, 14), COL.ref, y), text(r.ref.slice(14), COL.ref, y - 9))
+    items.push(text(r.type, COL.desc, y), text(DAY(r.value ?? r.book), COL.value, y))
+    items.push(r.amount < 0 ? right(money(r.amount), 392, y) : text(money(r.amount), COL.credit, y))
+    items.push(right(money(r.balance), 542, y))
+    y -= 25
+  }
+  return items
+}
+
+/** Builds the rows Yehulu would print for a run of days at `rate` %, with deposits/withdrawals. */
+const statementRows = ({ from, days, rate, opening = 0, moves = {} }) => {
+  const rows = []
+  let bal = opening
+  let n = 0
+  for (let d = 0; d < days; d++) {
+    const date = new Date(`${from}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + d)
+    const day = date.toISOString().slice(0, 10)
+    const next = new Date(date); next.setUTCDate(next.getUTCDate() + 1)
+    const value = next.toISOString().slice(0, 10)
+    for (const m of moves[day] ?? []) {
+      bal += m.amount
+      rows.push({ book: day, ref: `FT${day.replace(/-/g, '')}${m.amount}X`.padEnd(18, 'Q'), type: m.type, amount: m.amount, balance: bal })
+    }
+    const interest = Math.round(bal * rate / 36500)
+    const charge = Math.round(interest / 10)
+    const ref = `AAACT${String(++n).padStart(9, '0')}ZZZZ`
+    bal += interest
+    rows.push({ book: day, ref, type: 'Interest - Capitalise', value, amount: interest, balance: bal })
+    bal -= charge
+    rows.push({ book: day, ref, type: 'Debit Arrangement', value, amount: -charge, balance: bal })
+  }
+  return rows
+}
+
+test('reads a statement page by page, including pages without the header', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 6, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  const s = parseStatementPages([page(rows.slice(0, 7)), page(rows.slice(7), { withHeader: false })])
+  assert.equal(s.accountNo, '3000123456')
+  assert.equal(s.holder, 'TEST SAVER')
+  assert.equal(s.rows.length, rows.length)
+  assert.equal(s.opening, 0)
+  assert.equal(s.closing, rows.at(-1).balance)
+  assert.deepEqual(s.rows[0], { bookDate: '2026-03-01', ref: rows[0].ref, type: 'Transfer Credit', narrative: '', valueDate: '2026-03-01', amount: 10000000, balance: 10000000 })
+  assert.equal(s.rows[2].amount < 0, true, 'the charge is a debit')
+})
+
+test("refuses things that aren't a Yehulu statement", () => {
+  assert.throws(() => parseStatementPages([[text('Hello', 10, 10)]]), /doesn't look like/)
+})
+
+test('withdrawals lose the 0.2% fee (the app adds it back); standing orders have none', () => {
+  const rows = statementRows({
+    from: '2026-03-01', days: 4, rate: 40,
+    moves: {
+      '2026-03-01': [{ type: 'Transfer Credit', amount: 50000000 }],
+      '2026-03-02': [{ type: 'Cash Withdrawal', amount: -1002000 }, { type: 'Standing Order', amount: -1000 }],
+      '2026-03-03': [{ type: 'Transfer Debit', amount: -3006000 }],
+    },
+  })
+  const imp = buildImport([parseStatementPages([page(rows)])])
+  assert.deepEqual(imp.transactions.map(t => [t.type, t.amount, t.noFee, t.date]), [
+    ['deposit', 500000, false, '2026-03-01'],
+    ['withdrawal', 10000, false, '2026-03-02'],
+    ['withdrawal', 10, true, '2026-03-02'],
+    ['withdrawal', 30000, false, '2026-03-03'],
+  ])
+})
+
+test("the app's maths lands on the statement's balance every day, and the rates are found", () => {
+  const moves = { '2026-03-01': [{ type: 'Transfer Credit', amount: 30000000 }], '2026-03-20': [{ type: 'Cash Withdrawal', amount: -501000 }] }
+  const a = statementRows({ from: '2026-03-01', days: 30, rate: 40, moves })
+  const b = statementRows({ from: '2026-03-31', days: 20, rate: 35, opening: a.at(-1).balance })
+  const imp = buildImport([parseStatementPages([page([...a, ...b])])])
+  assert.deepEqual(imp.rates, [{ from: '2026-03-01', annualRate: 40 }, { from: '2026-03-31', annualRate: 35 }])
+  const rates = imp.rates.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: 0.1 }))
+  const cmp = compareWithStatement(simulateLedger({ transactions: imp.transactions, rates, fromDate: imp.to, endDate: imp.to }), imp.expected)
+  assert.equal(cmp.days, 50)
+  assert.equal(cmp.matched, 50)
+  assert.equal(cmp.end.app, b.at(-1).balance / 100)
+  assert.equal(adjustmentFor(cmp), null)
+})
+
+test('backdated rate changes: reversed interest is ignored, the recalculated line counts', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 5, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  // Yehulu takes back the last day's interest and charge, and re-credits it at 35%.
+  const last = rows.at(-2)
+  const charge = rows.at(-1)
+  let bal = charge.balance
+  bal -= charge.amount; rows.push({ ...charge, amount: -charge.amount, balance: bal })
+  bal -= last.amount; rows.push({ ...last, amount: -last.amount, balance: bal })
+  const redo = Math.round(bal * 35 / 36500)
+  bal += redo; rows.push({ ...last, amount: redo, balance: bal })
+  bal -= Math.round(redo / 10); rows.push({ ...charge, amount: -Math.round(redo / 10), balance: bal })
+  const imp = buildImport([parseStatementPages([page(rows)])])
+  assert.equal(imp.expected.size, 5, 'one balance per day')
+  assert.equal(imp.expected.get('2026-03-05'), bal / 100)
+})
+
+test('overlapping statements: nothing is added twice; the opening balance comes from the oldest', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 10, rate: 40, moves: { '2026-03-02': [{ type: 'Transfer Credit', amount: 2000000 }] }, opening: 5000000 })
+  const first = parseStatementPages([page(rows.slice(0, 12))])
+  const second = parseStatementPages([page(rows.slice(8))])
+  const imp = buildImport([second, first])
+  assert.equal(imp.transactions.filter(t => t.note.startsWith('Opening')).length, 1)
+  assert.equal(imp.transactions.find(t => t.note.startsWith('Opening')).amount, 50000)
+  assert.equal(imp.expected.size, 10)
+  assert.deepEqual(imp.gaps, [])
+})
+
+test('a missing statement in between is reported', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 10, rate: 40, opening: 5000000 })
+  const imp = buildImport([parseStatementPages([page(rows.slice(0, 4))]), parseStatementPages([page(rows.slice(12))])])
+  assert.equal(imp.gaps.length, 1)
+})
+
+test('statements of different accounts are refused', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 2, rate: 40, opening: 100000 })
+  const a = parseStatementPages([page(rows)])
+  assert.throws(() => buildImport([a, { ...a, accountNo: '3000999999' }]), /different Yehulu accounts/)
+})
+
+test('importing again skips what is there, including the opening balance once history exists', () => {
+  const lines = [
+    { type: 'deposit', amount: 500, date: '2026-03-01', ref: 'opening-2026-03-01' },
+    { type: 'deposit', amount: 100, date: '2026-03-02', ref: 'FT1:10000' },
+    { type: 'withdrawal', amount: 50, date: '2026-03-03', ref: 'TT2:-5010' },
+  ]
+  assert.equal(newLines(lines, []).length, 3)
+  assert.deepEqual(newLines(lines, [{ date: '2026-03-02', ref: 'FT1:10000' }]).map(t => t.ref), ['opening-2026-03-01', 'TT2:-5010'])
+  // Earlier history in the account: the opening balance is already there.
+  assert.deepEqual(newLines(lines, [{ date: '2026-01-10', ref: 'X' }]).map(t => t.ref), ['FT1:10000', 'TT2:-5010'])
+})
+
+test("an odd first credit is spotted and an adjustment offered from the next day", () => {
+  const cmp = { firstDifference: { date: '2025-08-15', app: 300740.18, yehulu: 300780.82 } }
+  assert.deepEqual(adjustmentFor(cmp), { type: 'deposit', amount: 40.64, date: '2025-08-16', note: 'Statement difference', ref: 'adjust-2025-08-15', noFee: true })
+})

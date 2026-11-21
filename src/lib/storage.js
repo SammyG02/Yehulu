@@ -126,6 +126,10 @@ const sanitizeTransaction = (txn) => {
     amount,
     date: txn.date,
     note: DEFAULT_NOTES.has(note) ? '' : note,
+    // Debits with no fee (e.g. standing orders), and the statement line a
+    // transaction was imported from (so importing again skips it).
+    ...(txn.type === 'withdrawal' && txn.noFee === true ? { noFee: true } : {}),
+    ...(typeof txn.ref === 'string' && txn.ref ? { ref: txn.ref.slice(0, 80) } : {}),
   }
 }
 
