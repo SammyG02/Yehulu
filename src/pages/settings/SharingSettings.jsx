@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Copy, DoorOpen, Link2, Link2Off, Pencil, Percent, RefreshCw, Share2, UserMinus, UserPlus } from 'lucide-react'
+import { Copy, DoorOpen, Link2, Link2Off, Pencil, Percent, RefreshCw, Share2, UserCheck, UserMinus, UserPlus } from 'lucide-react'
 import { Avatar } from '../../components/accounts/Avatar.jsx'
 import { MemberRateSheet } from '../../components/accounts/MemberRateSheet.jsx'
+import { LinkGuestSheet } from '../../components/accounts/LinkGuestSheet.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
@@ -168,6 +169,8 @@ function MemberList() {
   const [adding, setAdding] = useState(false)
   const [renaming, setRenaming] = useState(null)
   const [rateFor, setRateFor] = useState(null)
+  const [linking, setLinking] = useState(null)
+  const canLink = account.members.some(m => !m.guest && m.role !== 'owner')
   const accountRate = periodOn(account.rates, today).annualRate
   // "40%" for the account rate, "2% · own rate" when the owner set one.
   const rateText = (m) => (m.rates ? `${periodOn(m.rates, today).annualRate}% · own rate` : `${accountRate}%`)
@@ -216,6 +219,11 @@ function MemberList() {
                 <Percent className="h-4 w-4" />
               </button>
             )}
+            {isOwner && m.guest && canLink && (
+              <button type="button" onClick={() => setLinking(m.id)} aria-label={`Link ${m.name} to someone who joined`} title="Link to someone who joined" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
+                <UserCheck className="h-4 w-4" />
+              </button>
+            )}
             {isOwner && m.guest && (
               <button type="button" onClick={() => setRenaming(m.id)} aria-label={`Rename ${m.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
                 <Pencil className="h-4 w-4" />
@@ -243,6 +251,7 @@ function MemberList() {
         </button>
       ))}
       <MemberRateSheet member={account.members.find(m => m.id === rateFor)} open={rateFor !== null} onClose={() => setRateFor(null)} />
+      <LinkGuestSheet guest={account.members.find(m => m.id === linking)} open={linking !== null} onClose={() => setLinking(null)} />
     </Card>
   )
 }

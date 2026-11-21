@@ -263,6 +263,10 @@ export const cloudApi = (client) => ({
     const json = rates ? rates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null
     check(await client.rpc('set_member_rates', { acc: accountId, member: memberId, new_rates: json }))
   },
+  /** Owner: move a name-only member's history to someone who joined (migration 010). */
+  async linkGuest(accountId, guestId, memberId, skipIds) {
+    return check(await client.rpc('link_guest', { acc: accountId, guest: guestId, member: memberId, skip_ids: skipIds }))
+  },
   async renameGuest(accountId, guestId, name) {
     check(await client.rpc('rename_guest', { acc: accountId, guest: guestId, new_name: name }))
   },

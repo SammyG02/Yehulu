@@ -3,6 +3,7 @@ import { useToday } from '../hooks/useToday.js'
 import { AuthContext, ConfirmContext, SavingsContext } from './contexts.js'
 import { cloudApi, fetchAccounts } from '../lib/cloud.js'
 import { planImport, planRemoval } from '../lib/statement.js'
+import { planLink } from '../lib/linkMembers.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn } from '../lib/interest.js'
@@ -644,6 +645,36 @@ export function SavingsProvider({ children }) {
     return true
   }, [confirm, setData, remote, showToast])
 
+  /**
+   * Owner: link a name-only member to someone who joined. Their history moves
+   * over, leaving out entries that person already has; a special rate and goal
+   * carry over if the person has none. Returns { moved, skipped }.
+   */
+  const linkGuest = useCallback((guestId, memberId) => {
+    const current = activeOf(dataRef.current)
+    if (!current.cloud || current.role !== 'owner') return null
+    const guest = current.members.find(m => m.id === guestId)
+    const member = current.members.find(m => m.id === memberId)
+    if (!guest?.guest || !member || member.guest) return null
+    const plan = planLink(ofMember(current.transactions, guestId), ofMember(current.transactions, memberId))
+    const skip = new Set(plan.doubles.map(d => d.guest.id))
+    const hasGoal = (goal) => Boolean(goal?.target || goal?.monthly)
+    setData(d => withAccount(d, a => ({
+      ...a,
+      transactions: a.transactions
+        .filter(t => !skip.has(t.id))
+        .map(t => (t.memberId === guestId ? { ...t, memberId } : t)),
+      members: a.members
+        .filter(m => m.id !== guestId)
+        .map(m => (m.id === memberId
+          ? { ...m, rates: m.rates ?? guest.rates ?? null, goal: hasGoal(m.goal) ? m.goal : guest.goal }
+          : m)),
+    })))
+    remote(async () => { await api.linkGuest(current.id, guestId, memberId, [...skip]); await reload() })
+    showToast(`${guest.name}'s history moved to ${member.name}`)
+    return { moved: plan.move.length, skipped: plan.doubles.length }
+  }, [setData, remote, reload, showToast])
+
   /** Leaves a shared account (members only). */
   const leaveAccount = useCallback(() => {
     const current = activeOf(dataRef.current)
@@ -686,6 +717,7 @@ export function SavingsProvider({ children }) {
     addGuest,
     renameGuest,
     setMemberRates,
+    linkGuest,
     leaveAccount,
     joinAccount,
     invitePreview,
@@ -709,7 +741,7 @@ export function SavingsProvider({ children }) {
     showToast,
     dismissToast,
   }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, importStatement, removeStatement, deleteAccount,
-    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, leaveAccount, joinAccount, invitePreview,
+    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, linkGuest, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 
   const value = useMemo(() => ({
