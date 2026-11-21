@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card.jsx'
 import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
 import { simulateLedger } from '../../lib/interest.js'
-import { buildImport, compareWithStatement, planImport, readStatementPdf } from '../../lib/statement.js'
+import { buildImport, compareWithStatement, planImport, readStatementPdf, statementAccounts } from '../../lib/statement.js'
 import { MAX_ACCOUNTS, memberRateList, toFraction } from '../../lib/storage.js'
 import { useSavings } from '../../state/hooks.js'
 
@@ -18,17 +18,26 @@ function PickFiles({ onRead }) {
   const fileRef = useRef(null)
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState(null)
+  // A protected PDF: ask for its password, then read everything again.
+  const [locked, setLocked] = useState(null) // { files, name, passwords }
+  const [password, setPassword] = useState('')
 
-  const read = async (files) => {
+  const read = async (files, passwords = {}) => {
     if (!files.length) return
     setError(null)
+    setLocked(null)
     const statements = []
     try {
       for (const [i, file] of files.entries()) {
         setProgress(`Reading ${i + 1} of ${files.length}…`)
         try {
-          statements.push(await readStatementPdf(new Uint8Array(await file.arrayBuffer())))
+          statements.push(await readStatementPdf(new Uint8Array(await file.arrayBuffer()), passwords[file.name] ?? ''))
         } catch (err) {
+          if (err.needsPassword) {
+            setLocked({ files, name: file.name, passwords, wrong: Boolean(passwords[file.name]) })
+            setPassword('')
+            return
+          }
           throw new Error(`${file.name}: ${err.message}`, { cause: err })
         }
       }
@@ -66,6 +75,21 @@ function PickFiles({ onRead }) {
       <Button onClick={() => fileRef.current?.click()} disabled={progress !== null} className="w-full sm:w-auto">
         {progress ?? 'Choose statements'}
       </Button>
+      {locked && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (password) read(locked.files, { ...locked.passwords, [locked.name]: password }) }}
+          className="space-y-2 rounded-xl bg-sunken p-3"
+        >
+          <label htmlFor="pdf-password" className="block text-sm font-semibold">
+            {locked.wrong ? 'That password is not right. ' : ''}{locked.name} has a password
+          </label>
+          <div className="flex gap-2">
+            <input id="pdf-password" type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="PDF password" />
+            <Button type="submit" disabled={!password}>Open</Button>
+          </div>
+          <p className="text-xs text-muted">Used only to open the file on this device. It isn't saved.</p>
+        </form>
+      )}
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
     </Card>
   )
@@ -93,6 +117,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const [useRates, setUseRates] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [otherAccountOk, setOtherAccountOk] = useState(false)
 
   const counts = useMemo(() => ({
     deposits: result.transactions.filter(t => t.type === 'deposit').length,
@@ -122,6 +147,9 @@ function Review({ result, fileCount, onDone, onCancel }) {
     return { plan, check }
   }, [result, target, who, useRates, existing])
   const { plan, check } = preview
+  // Statements of another Yehulu account already in the chosen account?
+  const others = [...statementAccounts(existing)].filter(no => result.accountNo && no !== result.accountNo)
+  const blocked = others.length > 0 && !otherAccountOk
   const missing = plan.bridges.filter(b => b.note.startsWith('Missing'))
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
@@ -152,6 +180,28 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <p className="py-2 text-xs text-muted">Interest and charges aren't copied: the app works them out, the same way Yehulu does.</p>
       </Card>
 
+      {others.length > 0 && (
+        <div className="space-y-2 rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">
+          <p className="flex gap-2">
+            <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <span>
+              {target.name} already has statements from Yehulu account ••{others.map(o => o.slice(-4)).join(', ••')}. This one is
+              from ••{result.accountNo.slice(-4)}: a different account. Import it into its own account instead.
+            </span>
+          </p>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={otherAccountOk} onChange={(e) => setOtherAccountOk(e.target.checked)} className="h-4 w-4" />
+            They're the same savings; add it anyway
+          </label>
+        </div>
+      )}
+      {result.unconfirmed > 0 && (
+        <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
+          <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          The closing balance printed at the end of {result.unconfirmed === 1 ? 'a statement' : `${result.unconfirmed} statements`} couldn't
+          be found, so the app can't confirm nothing is cut off at the end.
+        </p>
+      )}
       {plan.matched.length > 0 && (
         <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
           <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
@@ -278,7 +328,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button onClick={doImport} disabled={busy || plan.add.length === 0}>
+        <Button onClick={doImport} disabled={busy || blocked || plan.add.length === 0}>
           {(() => {
             const n = plan.add.length
             return `Import ${n} transaction${n === 1 ? '' : 's'}`

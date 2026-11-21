@@ -40,6 +40,25 @@ const toCents = (text) => {
 const round2 = (x) => Math.round(x * 100) / 100
 
 const INTEREST = 'Interest - Capitalise'
+const KNOWN_TYPES = ['Interest - Capitalise', 'Debit Arrangement', 'Standing Order', 'Cash Withdrawal', 'Cash Deposit', 'Transfer Credit', 'Transfer Debit']
+
+/**
+ * The line's kind and the rest of its text. The kind can wrap onto a second
+ * line ("Interest -" / "Capitalise"), so known kinds are matched on the whole
+ * text first: an interest line must never be mistaken for a deposit.
+ */
+const describe = (parts) => {
+  const all = parts.join(' ').replace(/\s+/g, ' ').trim()
+  const known = KNOWN_TYPES.find(k => all.toLowerCase().startsWith(k.toLowerCase()))
+    ?? KNOWN_TYPES.find(k => all.replace(/\s/g, '').toLowerCase().startsWith(k.replace(/\s/g, '').toLowerCase()))
+  if (known) {
+    // Drop the words that make up the kind; the rest is the narrative.
+    let rest = all
+    for (const word of known.split(' ')) rest = rest.replace(new RegExp(`^\\s*${word.replace(/[-]/g, '\\-')}`, 'i'), '')
+    return { type: known, narrative: rest.trim() }
+  }
+  return { type: parts[0] ?? '', narrative: parts.slice(1).join(' ') }
+}
 const CHARGE = 'Debit Arrangement'
 const NO_FEE = /standing order/i
 
@@ -59,9 +78,15 @@ export function parseStatementPages(pages) {
   let printedOpening = null
   let printedClosing = null
   const rows = []
+  let row = null
+  let textChars = 0
 
   for (const items of pages) {
     const texts = items.filter(t => t.str.trim())
+    textChars += texts.reduce((n, t) => n + t.str.trim().length, 0)
+    // A row cut off at the bottom of the previous page continues at the top
+    // of this one (until the next row starts).
+    if (row) row.continues = true
     // The table header gives the column positions (repeated on every page).
     const header = Object.fromEntries(['Book Date', 'Reference', 'Description', 'Value Date', 'Debit', 'Credit', 'Closing Balance']
       .map(name => [name, texts.find(t => t.str.trim() === name)]))
@@ -100,7 +125,6 @@ export function parseStatementPages(pages) {
     // page has the header; later pages start straight with rows.
     const top = pageHasHeader ? columns.y - 1 : Infinity
     const body = texts.filter(t => t.y < top).sort((a, b) => b.y - a.y || a.x - b.x)
-    let row = null
     for (const t of body) {
       const str = t.str.trim()
       if (t.x < columns.ref - 2 && DATE.test(str)) {
@@ -108,7 +132,8 @@ export function parseStatementPages(pages) {
         rows.push(row)
         continue
       }
-      if (!row || t.y < row.y - 40) { row = null; continue }
+      if (!row) continue
+      if (!row.continues && t.y < row.y - 40) { row = null; continue }
       const right = t.x + (t.width ?? 0)
       if (AMOUNT.test(str)) {
         // Debits are right-aligned before the Credit column; credits start in
@@ -126,7 +151,11 @@ export function parseStatementPages(pages) {
     }
   }
 
-  if (!columns) throw new Error("This doesn't look like a Yehulu account statement.")
+  if (!columns) {
+    throw new Error(textChars < 20
+      ? 'This PDF has no readable text: it looks like a scan or photo. Download the statement from Yehulu as a PDF instead.'
+      : "This doesn't look like a Yehulu account statement.")
+  }
   if (currency && currency.toUpperCase() !== 'ETB') {
     throw new Error(`This statement is in ${currency}. Yehulu tracks Birr (ETB) only.`)
   }
@@ -135,7 +164,9 @@ export function parseStatementPages(pages) {
   // every line must move it by exactly its amount. Where the amount is
   // missing, it comes from the balance; where a debit/credit is the wrong way
   // round, the balance says which it is. Anything else is refused.
-  const withBalance = rows.filter(r => r.balance != null)
+  // Newest first? Read it oldest first (the balance column then chains forwards).
+  const dated = rows.filter(r => r.balance != null)
+  const withBalance = dated.length > 1 && dated[0].bookDate > dated.at(-1).bookDate ? [...dated].reverse() : dated
   if (withBalance.length === 0) throw new Error('No transactions found in this statement.')
   const clean = []
   const fixes = []
@@ -159,8 +190,7 @@ export function parseStatementPages(pages) {
     clean.push({
       bookDate: r.bookDate,
       ref: r.ref,
-      type: r.desc[0] ?? '',
-      narrative: r.desc.slice(1).join(' '),
+      ...describe(r.desc),
       valueDate: r.valueDate ?? r.bookDate,
       amount,
       balance: r.balance,
@@ -173,17 +203,41 @@ export function parseStatementPages(pages) {
   if (printedClosing != null && printedClosing !== closing) {
     throw new Error(`The statement's closing balance (${(printedClosing / 100).toFixed(2)}) doesn't match its transactions (${(closing / 100).toFixed(2)}). Part of it may be missing.`)
   }
-  return { accountNo, holder, printed, currency, opening, closing, rows: clean, fixes }
+  // Without the printed closing balance, a statement cut off at the end can't be noticed.
+  return { accountNo, holder, printed, currency, opening, closing, rows: clean, fixes, closingConfirmed: printedClosing != null }
 }
 
-/** Reads a statement PDF file in the browser (or Node, for tests). */
-export async function readStatementPdf(data) {
+const MAX_BYTES = 20 * 1024 * 1024
+const MAX_PAGES = 500
+
+/** A statement PDF that needs a password (`.needsPassword` on the error). */
+export class PasswordNeeded extends Error {
+  constructor(wrong) {
+    super(wrong ? 'That password is not right.' : 'This PDF is protected with a password.')
+    this.needsPassword = true
+  }
+}
+
+/**
+ * Reads a statement PDF file in the browser (or Node, for tests). PDF.js runs
+ * in a separate worker with scripts and font code evaluation off, and only
+ * text is taken from the file.
+ */
+export async function readStatementPdf(data, password = '') {
+  if (data.byteLength > MAX_BYTES) throw new Error('This file is too big for a statement (over 20 MB).')
   // The "legacy" build also runs on older phones (e.g. iPhones before iOS 17.4).
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
     pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default
   }
-  const doc = await pdfjs.getDocument({ data, password: '', isEvalSupported: false, verbosity: 0 }).promise
+  let doc
+  try {
+    doc = await pdfjs.getDocument({ data, password, isEvalSupported: false, enableXfa: false, verbosity: 0 }).promise
+  } catch (err) {
+    if (err?.name === 'PasswordException') throw new PasswordNeeded(Boolean(password))
+    throw new Error("This file couldn't be opened as a PDF. It may be damaged.", { cause: err })
+  }
+  if (doc.numPages > MAX_PAGES) { await doc.destroy(); throw new Error(`This PDF has ${doc.numPages} pages; statements up to ${MAX_PAGES} pages can be read.`) }
   const pages = []
   for (let p = 1; p <= doc.numPages; p++) {
     const { items } = await (await doc.getPage(p)).getTextContent()
@@ -308,6 +362,7 @@ export function buildImport(statements) {
   }
   const dateOf = (r, i) => (nextInterestDay[i] && nextInterestDay[i] < r.valueDate ? nextInterestDay[i] : r.valueDate)
 
+  const accountTag = (first => first?.accountNo ?? '')(sorted[0])
   const transactions = []
   const interestLines = []
   const expected = new Map()
@@ -332,19 +387,20 @@ export function buildImport(statements) {
     if (r.type === CHARGE) return
     // The line's fingerprint (not the file name or the reference text, which
     // can wrap differently between two printouts of the same statement).
-    const ref = `y:${r.key}`
-    const legacyRef = `${r.ref || r.bookDate}:${r.amount}`
+    // Which Yehulu account it came from, plus the line's fingerprint.
+    const ref = fitRef(`y:${accountTag}:${r.key}`)
+    const legacyRefs = [`y:${r.key}`, `${r.ref || r.bookDate}:${r.amount}`]
     const date = dateOf(r, i)
     const note = r.type.slice(0, 60)
     if (r.amount > 0) {
-      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRef, noFee: false })
+      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRefs, noFee: false })
       return
     }
     const total = -r.amount
     const base = NO_FEE.test(r.type) ? null : withoutFee(total)
     transactions.push(base == null
-      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRef, noFee: true }
-      : { type: 'withdrawal', amount: base, date, note, ref, legacyRef, noFee: false })
+      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRefs, noFee: true }
+      : { type: 'withdrawal', amount: base, date, note, ref, legacyRefs, noFee: false })
   })
 
   const from = transactions.map(t => t.date).sort()[0] ?? rows[0].bookDate
@@ -375,6 +431,7 @@ export function buildImport(statements) {
     anchors,
     gaps,
     fixes: sorted.flatMap(s => s.fixes ?? []),
+    unconfirmed: sorted.filter(s => s.closingConfirmed === false).length,
   }
 }
 
@@ -462,9 +519,10 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
   const real = existing.filter(t => !isBridge(t))
   const known = new Set(real.map(t => t.ref).filter(Boolean))
   // Lines imported by an earlier version of the app carry the older reference.
+  // Lines imported by earlier versions of the app carry older references.
   const fresh = lines
-    .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRef && known.has(t.legacyRef)))
-    .map(({ legacyRef: _legacy, ...t }) => t)
+    .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRefs ?? []).some(r => known.has(r)))
+    .map(({ legacyRefs: _legacy, ...t }) => t)
 
   // Money you entered yourself (no statement reference) that is the same as a
   // statement line: same kind, same amount, within 3 days. It's already
@@ -520,6 +578,28 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
     unmatchedOwn,
     bridges,
   }
+}
+
+/** References are stored up to 80 characters: longer ones keep their start and a fixed hash of the whole. */
+function fitRef(ref) {
+  if (ref.length <= 80) return ref
+  let h1 = 0x811c9dc5
+  let h2 = 0x01000193
+  for (let i = 0; i < ref.length; i++) {
+    h1 = Math.imul(h1 ^ ref.charCodeAt(i), 0x01000193) >>> 0
+    h2 = Math.imul(h2 ^ ref.charCodeAt(i), 0x5bd1e995) >>> 0
+  }
+  return `${ref.slice(0, 62)}~${h1.toString(36)}${h2.toString(36)}`.slice(0, 80)
+}
+
+/** Yehulu account numbers whose statements are already in these transactions. */
+export function statementAccounts(transactions) {
+  const found = new Set()
+  for (const t of transactions) {
+    const m = /^y:([^:|]+):/.exec(t.ref ?? '')
+    if (m) found.add(m[1])
+  }
+  return found
 }
 
 /**

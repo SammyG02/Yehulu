@@ -73,7 +73,8 @@ test('reads a statement page by page, including pages without the header', () =>
 })
 
 test("refuses things that aren't a Yehulu statement", () => {
-  assert.throws(() => parseStatementPages([[text('Hello', 10, 10)]]), /doesn't look like/)
+  assert.throws(() => parseStatementPages([[text('Hello', 10, 10)]]), /looks like a scan/)
+  assert.throws(() => parseStatementPages([[text('Dear customer, thank you for banking with us. Your card is ready.', 10, 10)]]), /doesn't look like/)
 })
 
 test('withdrawals lose the 0.2% fee (the app adds it back); standing orders have none', () => {
@@ -420,4 +421,72 @@ test('a recalculated bridge gets a new reference (so add-then-remove never colli
   const after = b.transactions.find(t => t.ref.startsWith('gap-'))
   assert.ok(before && after)
   assert.notEqual(before.ref, after.ref)
+})
+
+// ---- PDF reading edge cases ----------------------------------------------------
+
+const twoDays = () => statementRows({ from: '2026-03-01', days: 3, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+
+test('Q: a scanned PDF (no text) -> told it is a scan', () => {
+  assert.throws(() => parseStatementPages([[], []]), /looks like a scan/)
+})
+
+test("Q: a line's kind wrapped onto two lines is still recognised (interest is never taken for a deposit)", () => {
+  const rows = twoDays()
+  const items = page(rows).flatMap(t => (t.str === 'Interest - Capitalise' ? [{ ...t, str: 'Interest -' }, { ...t, str: 'Capitalise', y: t.y - 8 }] : [t]))
+  const s = parseStatementPages([items])
+  assert.equal(s.rows.filter(r => r.type === 'Interest - Capitalise').length, 3)
+  const imp = buildImport([s])
+  assert.equal(imp.transactions.length, 1, 'only the real deposit')
+})
+
+test('Q: a description on two lines -> the kind, plus the rest as narrative', () => {
+  const rows = twoDays()
+  const items = page(rows).flatMap(t => (t.str === 'Transfer Credit' ? [t, { ...t, str: 'FROM ABEBE', y: t.y - 8 }] : [t]))
+  const s = parseStatementPages([items])
+  assert.deepEqual([s.rows[0].type, s.rows[0].narrative], ['Transfer Credit', 'FROM ABEBE'])
+})
+
+test('Q: a row cut off at the bottom of a page carries on at the top of the next', () => {
+  const rows = twoDays()
+  const all = page(rows)
+  // Move the deposit's amount and balance to the top of a second page.
+  const depositY = all.find(t => t.str === 'Transfer Credit').y
+  const moved = all.filter(t => t.y === depositY && t.x >= COL.debit)
+  const first = all.filter(t => !moved.includes(t) && t.y >= depositY)
+  const second = [text('30 September 2026', 496, 768), ...moved.map(t => ({ ...t, y: 740 })), ...all.filter(t => t.y < depositY).map(t => ({ ...t, y: t.y + 100 }))]
+  const s = parseStatementPages([first, second])
+  assert.equal(s.rows.length, rows.length)
+  assert.equal(s.rows[0].amount, 10000000)
+})
+
+test('Q: a page missing in the middle (300 of 500 lines) -> refused, never imported in part', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 20, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  assert.throws(() => parseStatementPages([page(rows.slice(0, 15)), page(rows.slice(25), { withHeader: false })]), /doesn't match the change in balance/)
+})
+
+test("Q: lines cut off at the very end can't be seen without the printed closing balance -> flagged", () => {
+  const rows = twoDays()
+  assert.equal(parseStatementPages([page(rows)]).closingConfirmed, false)
+  assert.equal(buildImport([parseStatementPages([page(rows)])]).unconfirmed, 1)
+})
+
+test('Q: a statement printed newest first is read oldest first', () => {
+  const rows = twoDays()
+  const s = parseStatementPages([page([...rows].reverse())])
+  assert.equal(s.rows[0].type, 'Transfer Credit')
+  assert.equal(s.closing, rows.at(-1).balance)
+})
+
+test('Q: two lines on the same day keep their order and both count', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 2, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }, { type: 'Transfer Credit', amount: 10000000 }] } })
+  const imp = buildImport([parseStatementPages([page(rows)])])
+  assert.equal(imp.transactions.length, 2)
+  assert.notEqual(imp.transactions[0].ref, imp.transactions[1].ref)
+})
+
+test("Q: another Yehulu account's statement -> its account number is recognised", async () => {
+  const { statementAccounts } = await import('./statement.js')
+  const acc = importInto(empty, [jan])
+  assert.deepEqual([...statementAccounts(acc.transactions)], ['3000123456'])
 })
