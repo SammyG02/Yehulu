@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { supabase } from '../lib/supabase.js'
 import { AuthContext } from './contexts.js'
+
+// In the downloadable app, Google sign-in opens in the phone's browser (Google
+// doesn't allow it inside apps) and comes back through this link. It must be
+// in Supabase > Authentication > URL Configuration > Redirect URLs.
+export const NATIVE_REDIRECT = 'yehulu://login'
+const RETURN_KEY = 'yehuluReturnTo'
+const native = Capacitor.isNativePlatform()
 
 // Google accounts signed in on this device, so you can switch between them
 // without signing in again: [{ id, name, email, avatarUrl, tokens }].
@@ -66,11 +74,50 @@ export function AuthProvider({ children }) {
 
   /** Leaves for Google and comes back to `returnTo` (default: this page). */
   const signInWithGoogle = useCallback(async (returnTo = window.location.pathname) => {
+    if (native) {
+      // Open Google in the phone's browser; the app finishes when it comes back.
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: NATIVE_REDIRECT, skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } },
+      })
+      if (error) throw error
+      try { localStorage.setItem(RETURN_KEY, returnTo) } catch { /* fine: lands on Home */ }
+      const { Browser } = await import('@capacitor/browser')
+      await Browser.open({ url: data.url, presentationStyle: 'popover' })
+      return
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin + returnTo, queryParams: { prompt: 'select_account' } },
     })
     if (error) throw error
+  }, [])
+
+  // Downloadable app: Google sends the user back to yehulu://login?code=...
+  useEffect(() => {
+    if (!native || !supabase) return
+    let handle = null
+    let cancelled = false
+    ;(async () => {
+      const [{ App }, { Browser }] = await Promise.all([import('@capacitor/app'), import('@capacitor/browser')])
+      const listener = await App.addListener('appUrlOpen', async ({ url }) => {
+        if (!url?.startsWith(NATIVE_REDIRECT)) return
+        Browser.close().catch(() => {})
+        const params = new URL(url.replace(/#/, '?')).searchParams
+        const code = params.get('code')
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) console.error('Sign-in failed:', error.message)
+        }
+        let back = '/'
+        try { back = localStorage.getItem(RETURN_KEY) || '/'; localStorage.removeItem(RETURN_KEY) } catch { /* Home */ }
+        if (window.location.pathname !== back) window.history.replaceState(null, '', back)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      if (cancelled) listener.remove()
+      else handle = listener
+    })()
+    return () => { cancelled = true; handle?.remove() }
   }, [])
 
   /** Signs out of this account on this device only, and forgets it here. */
