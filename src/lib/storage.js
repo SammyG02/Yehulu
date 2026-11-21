@@ -130,6 +130,7 @@ const sanitizeTransaction = (txn) => {
     // transaction was imported from (so importing again skips it).
     ...(txn.type === 'withdrawal' && txn.noFee === true ? { noFee: true } : {}),
     ...(typeof txn.ref === 'string' && txn.ref ? { ref: txn.ref.slice(0, 80) } : {}),
+    ...(typeof txn.source === 'string' && txn.source ? { source: txn.source.slice(0, 160) } : {}),
   }
 }
 

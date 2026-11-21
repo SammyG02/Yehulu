@@ -332,10 +332,11 @@ export function buildImport(statements) {
       gaps.push({ after: prev.rows.at(-1).bookDate, before: s.rows[0].bookDate })
     }
     starts.push(rows.length)
+    const source = sourceOf(s)
     for (const r of s.rows) {
       if (seen.has(r.key)) continue
       seen.add(r.key)
-      rows.push(r)
+      rows.push({ ...r, source })
     }
   })
 
@@ -381,7 +382,7 @@ export function buildImport(statements) {
   const firstDay = [...dayOf.values()][0] ?? rows[0].bookDate
   if (first.opening > 0) {
     const date = rows[0].bookDate < firstDay ? rows[0].bookDate : firstDay
-    transactions.push({ type: 'deposit', amount: first.opening / 100, date, note: 'Opening balance (statement)', ref: `opening-${date}`, noFee: false })
+    transactions.push({ type: 'deposit', amount: first.opening / 100, date, note: 'Opening balance (statement)', ref: `opening-${date}`, noFee: false, source: sourceOf(first) })
   }
   let balance = first.opening
   rows.forEach((r, i) => {
@@ -404,14 +405,14 @@ export function buildImport(statements) {
     const date = dateOf(r, i)
     const note = r.type.slice(0, 60)
     if (r.amount > 0) {
-      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRefs, noFee: false })
+      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRefs, noFee: false, source: r.source })
       return
     }
     const total = -r.amount
     const base = NO_FEE.test(r.type) ? null : withoutFee(total)
     transactions.push(base == null
-      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRefs, noFee: true }
-      : { type: 'withdrawal', amount: base, date, note, ref, legacyRefs, noFee: false })
+      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRefs, noFee: true, source: r.source }
+      : { type: 'withdrawal', amount: base, date, note, ref, legacyRefs, noFee: false, source: r.source })
   })
 
   const from = transactions.map(t => t.date).sort()[0] ?? rows[0].bookDate
@@ -672,6 +673,18 @@ export function mergeRates(existing, found, from, to) {
 
 // ---- removing imported statements ---------------------------------------------
 
+/**
+ * Where a statement's lines came from: "file name|first day|last day". Kept
+ * on each imported line so a single file can be removed later.
+ */
+export const sourceOf = (s) => `${(s.fileName ?? 'Statement').slice(0, 100)}|${s.rows[0]?.bookDate ?? ''}|${s.rows.at(-1)?.bookDate ?? ''}`
+
+/** "STMT(4).pdf|2025-08-14|2026-01-01" -> { file, from, to } */
+export const readSource = (source) => {
+  const [file, from, to] = String(source ?? '').split('|')
+  return file && from && to ? { file, from, to } : null
+}
+
 /** The Yehulu account a statement line came from ('' for lines from before account tags), or null if not a statement line. */
 const lineAccount = (t) => {
   if (!t.ref?.startsWith('y:')) return null
@@ -688,11 +701,18 @@ export function importedPeriods(transactions) {
   for (const t of transactions) {
     const acct = lineAccount(t)
     if (acct == null) continue
-    const p = by.get(acct) ?? { accountNo: acct, from: t.date, to: t.date, lines: 0 }
-    if (t.date < p.from) p.from = t.date
-    if (t.date > p.to) p.to = t.date
+    const src = readSource(t.source)
+    // One entry per imported file; older imports (no file recorded) per account.
+    const key = src ? `file:${t.source}` : `acct:${acct}`
+    const p = by.get(key) ?? (src
+      ? { accountNo: acct, source: t.source, file: src.file, from: src.from, to: src.to, lines: 0 }
+      : { accountNo: acct, source: null, file: null, from: t.date, to: t.date, lines: 0 })
+    if (!src) {
+      if (t.date < p.from) p.from = t.date
+      if (t.date > p.to) p.to = t.date
+    }
     p.lines++
-    by.set(acct, p)
+    by.set(key, p)
   }
   return [...by.values()].sort((a, b) => a.from.localeCompare(b.from))
 }
@@ -706,10 +726,19 @@ export function importedPeriods(transactions) {
  *   existing: that person's transactions; rates: fractions
  * Returns { remove (ids), add (bridges), removed: { deposits, withdrawals } }.
  */
-export function planRemoval({ existing, accountNo, from, to, rates, newId }) {
+export function planRemoval({ existing, accountNo, from, to, source = null, rates, newId }) {
   const inRange = (t) => t.date >= from && t.date <= to
-  const target = existing.filter(t => lineAccount(t) === accountNo && inRange(t))
-  const openings = existing.filter(t => isOpening(t) && inRange(t))
+  // Removing one file: its lines, except days another imported file of that
+  // account also covers (that file still needs them).
+  const others = source
+    ? [...new Set(existing.filter(t => t.source && t.source !== source && lineAccount(t) === accountNo).map(t => t.source))]
+      .map(readSource).filter(Boolean)
+    : []
+  const coveredElsewhere = (t) => others.some(o => t.date >= o.from && t.date <= o.to)
+  const target = existing.filter(t => lineAccount(t) === accountNo && inRange(t)
+    && (!source || (t.source === source && !coveredElsewhere(t))))
+  const kept = source ? existing.filter(t => t.source === source && !target.includes(t)).length : 0
+  const openings = existing.filter(t => isOpening(t) && inRange(t) && (!source || t.source === source))
   const oldBridges = existing.filter(isBridge)
   const gone = new Set([...target, ...openings].map(t => t.id))
 
@@ -734,6 +763,7 @@ export function planRemoval({ existing, accountNo, from, to, rates, newId }) {
     removed: {
       deposits: target.filter(t => t.type === 'deposit').length,
       withdrawals: target.filter(t => t.type === 'withdrawal').length,
+      keptForOthers: kept,
     },
   }
 }

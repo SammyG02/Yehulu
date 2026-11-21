@@ -517,11 +517,11 @@ export function SavingsProvider({ children }) {
    * dates, from your own money in the open account (see planRemoval). Your own
    * entries stay; later statements keep matching the bank. Returns the counts.
    */
-  const removeStatement = useCallback(({ accountNo, from, to }) => {
+  const removeStatement = useCallback(({ accountNo, from, to, source = null }) => {
     const current = activeOf(dataRef.current)
     const who = current.cloud ? userId : null
     const plan = planRemoval({
-      existing: ofMember(current.transactions, who), accountNo, from, to, rates: ratesOf(current, who), newId,
+      existing: ofMember(current.transactions, who), accountNo, from, to, source, rates: ratesOf(current, who), newId,
     })
     const gone = new Set(plan.remove)
     const added = plan.add.map(t => (current.cloud ? { ...t, memberId: who } : t))

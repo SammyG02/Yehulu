@@ -87,6 +87,7 @@ const fromRow = (t) => ({
   memberId: t.member_id,
   ...(t.no_fee ? { noFee: true } : {}),
   ...(t.ref ? { ref: t.ref } : {}),
+  ...(t.source ? { source: t.source } : {}),
 })
 
 const check = ({ data, error }) => {
@@ -140,6 +141,7 @@ const toTxnRow = (accountId, t) => ({
   // database without these columns yet.
   ...(t.type === 'withdrawal' && t.noFee ? { no_fee: true } : {}),
   ...(t.ref ? { ref: t.ref } : {}),
+  ...(t.source ? { source: t.source } : {}),
 })
 
 /** Every change the app can make, one function each. All throw on failure. */
@@ -183,7 +185,7 @@ export const cloudApi = (client) => ({
       member: memberId,
       new_rows: txns.map(t => ({
         id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
-        no_fee: t.type === 'withdrawal' && Boolean(t.noFee), ref: t.ref ?? null,
+        no_fee: t.type === 'withdrawal' && Boolean(t.noFee), ref: t.ref ?? null, source: t.source ?? null,
       })),
       remove_ids: removeIds,
       account_rates: accountRates ? accountRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,

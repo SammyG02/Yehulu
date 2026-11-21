@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { CircleCheck, FileText, TriangleAlert } from 'lucide-react'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
@@ -31,7 +31,7 @@ function PickFiles({ onRead }) {
       for (const [i, file] of files.entries()) {
         setProgress(`Reading ${i + 1} of ${files.length}…`)
         try {
-          statements.push(await readStatementPdf(new Uint8Array(await file.arrayBuffer()), passwords[file.name] ?? ''))
+          statements.push({ ...(await readStatementPdf(new Uint8Array(await file.arrayBuffer()), passwords[file.name] ?? '')), fileName: file.name })
         } catch (err) {
           if (err.needsPassword) {
             setLocked({ files, name: file.name, passwords, wrong: Boolean(passwords[file.name]) })
@@ -360,31 +360,37 @@ function Review({ result, fileCount, onDone, onCancel }) {
 function ImportedPeriod({ period }) {
   const { account, me, actions } = useSavings()
   const confirm = useConfirm()
+  const uid = useId()
   const [open, setOpen] = useState(false)
   const [from, setFrom] = useState(period.from)
   const [to, setTo] = useState(period.to)
-  const label = period.accountNo ? `Yehulu ••${period.accountNo.slice(-4)}` : 'Yehulu statements'
+  const account4 = period.accountNo ? `Yehulu ••${period.accountNo.slice(-4)}` : 'Yehulu statements'
+  // A file (removed as a whole) or older imports (removed between two dates).
+  const byFile = Boolean(period.source)
+  const label = byFile ? period.file : `${account4} · imported earlier`
 
   // What removing that range would do (same steps as the real removal).
   const preview = useMemo(() => {
     if (!open || !from || !to || from > to) return null
     const existing = account.transactions.filter(t => !account.cloud || t.memberId === me)
     let n = 0
-    const plan = planRemoval({ existing, accountNo: period.accountNo, from, to, rates: ratesOf(account, me), newId: () => `p${n++}` })
+    const plan = planRemoval({ existing, accountNo: period.accountNo, from, to, source: period.source, rates: ratesOf(account, me), newId: () => `p${n++}` })
     const later = existing.some(t => t.ref?.startsWith(`y:${period.accountNo}:`) && t.date > to)
     return { ...plan.removed, total: plan.removed.deposits + plan.removed.withdrawals, later }
-  }, [open, from, to, account, me, period.accountNo])
+  }, [open, from, to, account, me, period.accountNo, period.source])
 
   const remove = async () => {
     if (!preview?.total) return
     if (!(await confirm({
-      title: `Remove ${preview.total} statement line${preview.total === 1 ? '' : 's'}?`,
-      message: `From ${label}, ${formatDate(from)} – ${formatDate(to)}, in ${account.name}. Entries you added yourself stay.`
+      title: byFile ? `Remove ${period.file}?` : `Remove ${preview.total} statement line${preview.total === 1 ? '' : 's'}?`,
+      message: `${preview.total} line${preview.total === 1 ? '' : 's'} from ${byFile ? 'this statement' : account4}, ${formatDate(from)} – ${formatDate(to)}, in ${account.name}.`
+        + (preview.keptForOthers ? ` ${preview.keptForOthers} that another imported statement also has stay.` : '')
+        + ' Entries you added yourself stay.'
         + (preview.later ? ' Later statements keep matching the bank.' : ''),
       confirmLabel: 'Remove',
       danger: true,
     }))) return
-    actions.removeStatement({ accountNo: period.accountNo, from, to })
+    actions.removeStatement({ accountNo: period.accountNo, from, to, source: period.source })
     setOpen(false)
   }
 
@@ -394,24 +400,28 @@ function ImportedPeriod({ period }) {
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold">{label}</span>
           <span className="block text-xs text-muted">
-            {formatDate(period.from)} – {formatDate(period.to)} · {period.lines} line{period.lines === 1 ? '' : 's'}
+            {byFile && `${account4} · `}{formatDate(period.from)} – {formatDate(period.to)} · {period.lines} line{period.lines === 1 ? '' : 's'}
           </span>
         </span>
         {!open && <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>Remove…</Button>}
       </div>
       {open && (
         <div className="mt-3 space-y-3 rounded-xl bg-sunken p-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field id={`rm-from-${period.accountNo}`} label="From">
-              <input id={`rm-from-${period.accountNo}`} type="date" value={from} min={period.from} max={period.to} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
-            </Field>
-            <Field id={`rm-to-${period.accountNo}`} label="To">
-              <input id={`rm-to-${period.accountNo}`} type="date" value={to} min={period.from} max={period.to} onChange={(e) => setTo(e.target.value)} className={inputClass} />
-            </Field>
-          </div>
+          {!byFile && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field id={`${uid}-from`} label="From">
+                <input id={`${uid}-from`} type="date" value={from} min={period.from} max={period.to} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+              </Field>
+              <Field id={`${uid}-to`} label="To">
+                <input id={`${uid}-to`} type="date" value={to} min={period.from} max={period.to} onChange={(e) => setTo(e.target.value)} className={inputClass} />
+              </Field>
+            </div>
+          )}
           <p className="text-xs text-muted">
             {preview
-              ? `Removes ${preview.deposits} deposit${preview.deposits === 1 ? '' : 's'} and ${preview.withdrawals} withdrawal${preview.withdrawals === 1 ? '' : 's'} that came from statements. Your own entries stay.`
+              ? `Removes ${preview.deposits} deposit${preview.deposits === 1 ? '' : 's'} and ${preview.withdrawals} withdrawal${preview.withdrawals === 1 ? '' : 's'} that came from ${byFile ? 'this statement' : 'statements'}.`
+                + (preview.keptForOthers ? ` ${preview.keptForOthers} that another imported statement also has stay.` : '')
+                + ' Your own entries stay.'
                 + (preview.later ? ' Balances after this keep matching the bank (the gap is carried over until you import it again).' : '')
               : 'Pick a From date on or before the To date.'}
           </p>
@@ -437,7 +447,7 @@ function ImportedList() {
     <Card className="p-4 sm:p-5">
       <h3 className="text-sm font-bold">Imported into {account.name}</h3>
       <ul className="divide-y divide-line">
-        {periods.map(p => <ImportedPeriod key={p.accountNo || 'old'} period={p} />)}
+        {periods.map(p => <ImportedPeriod key={p.source ?? `old-${p.accountNo}`} period={p} />)}
       </ul>
     </Card>
   )

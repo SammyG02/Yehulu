@@ -542,7 +542,7 @@ test('atomic cloud import: sends one request; falls back only when the database 
   const client = (error) => ({ rpc: async (name, args) => { calls.push([name, args]); return { error } } })
   const txn = { id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', noFee: true, ref: 'y:1:abc' }
   assert.equal(await cloudApi(client(null)).importStatement('acc', 'me', [txn], ['old'], null, [{ from: '2026-01-01', annualRate: 2 }]), true)
-  assert.deepEqual(calls[0][1].new_rows, [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', no_fee: true, ref: 'y:1:abc' }])
+  assert.deepEqual(calls[0][1].new_rows, [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', no_fee: true, ref: 'y:1:abc', source: null }])
   assert.deepEqual(calls[0][1].remove_ids, ['old'])
   assert.deepEqual(calls[0][1].member_rates, [{ from: '2026-01-01', annual_rate: 2 }])
   assert.equal(await cloudApi(client({ message: 'Could not find the function public.import_statement', code: 'PGRST202' })).importStatement('acc', 'me', [], [], null, null), false)
@@ -559,10 +559,39 @@ const removeFrom = async (acc, from, to) => {
   return { ...acc, transactions: [...acc.transactions.filter(t => !gone.has(t.id)), ...plan.add], plan }
 }
 
-test('imported periods are listed per Yehulu account', async () => {
+test('imported statements are listed one per file, with their period', async () => {
   const { importedPeriods } = await import('./statement.js')
-  const acc = importInto(empty, [jan, feb, mar, apr])
-  assert.deepEqual(importedPeriods(acc.transactions).map(p => [p.accountNo, p.from, p.to, p.lines]), [['3000123456', '2026-01-01', '2026-04-12', 4]], 'from the first to the last statement line')
+  const named = [jan, feb, mar, apr].map((s, i) => ({ ...s, fileName: `STMT(${i + 1}).pdf` }))
+  const acc = importInto(empty, named)
+  assert.deepEqual(importedPeriods(acc.transactions).map(p => [p.file, p.from, p.to]), [
+    ['STMT(1).pdf', '2026-01-01', '2026-01-31'], ['STMT(2).pdf', '2026-02-01', '2026-02-28'],
+    ['STMT(3).pdf', '2026-03-01', '2026-03-31'], ['STMT(4).pdf', '2026-04-01', '2026-04-30'],
+  ])
+  // Lines imported before files were recorded show as one group per account.
+  const old = acc.transactions.map(({ source: _s, ...t }) => t)
+  assert.deepEqual(importedPeriods(old).map(p => [p.file, p.accountNo]), [[null, '3000123456']])
+})
+
+test('removing one file removes only its lines; days another file covers stay; re-import restores it', async () => {
+  const { planRemoval, importedPeriods } = await import('./statement.js')
+  // Two overlapping files: Jan 1 - Mar 10, and Feb 15 - end.
+  const a = { ...printout('2026-01-01', '2026-03-11'), fileName: 'A.pdf' }
+  const b = { ...printout('2026-02-15'), fileName: 'B.pdf' }
+  let acc = importInto(importInto(empty, [a]), [b])
+  const files = importedPeriods(acc.transactions)
+  assert.deepEqual(files.map(f => f.file), ['A.pdf', 'B.pdf'])
+  const fileA = files[0]
+  const plan = planRemoval({ existing: acc.transactions, accountNo: fileA.accountNo, from: fileA.from, to: fileA.to, source: fileA.source, rates: pct(acc.rates), newId })
+  const gone = new Set(plan.remove)
+  const after = { ...acc, transactions: [...acc.transactions.filter(t => !gone.has(t.id)), ...plan.add] }
+  // A's deposit (Jan 1) and withdrawal (Feb 10) go; the Mar 5 deposit stays: B covers it.
+  assert.equal(plan.removed.deposits + plan.removed.withdrawals, 2)
+  assert.equal(plan.removed.keptForOthers, 1)
+  assert.ok(after.transactions.some(t => t.date === '2026-03-05' && t.type === 'deposit'))
+  assert.equal(balanceOn(after, months.last), months.final, 'B still matches the bank')
+  acc = importInto(after, [a])
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(standIns(acc), 0, 'A back: no stand-ins left')
 })
 
 test('removing a middle statement: later balances still match the bank; importing it again restores everything', async () => {
