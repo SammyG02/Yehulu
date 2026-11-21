@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { adjustmentFor, buildImport, compareWithStatement, newLines, parseStatementPages } from './statement.js'
+import { buildImport, compareWithStatement, mergeRates, parseStatementPages, planImport } from './statement.js'
 import { simulateLedger } from './interest.js'
 
 // Made-up statements laid out like a real Yehulu "Account Statement" PDF (the
@@ -105,7 +105,6 @@ test("the app's maths lands on the statement's balance every day, and the rates 
   assert.equal(cmp.days, 50)
   assert.equal(cmp.matched, 50)
   assert.equal(cmp.end.app, b.at(-1).balance / 100)
-  assert.equal(adjustmentFor(cmp), null)
 })
 
 test('backdated rate changes: reversed interest is ignored, the recalculated line counts', () => {
@@ -147,19 +146,83 @@ test('statements of different accounts are refused', () => {
   assert.throws(() => buildImport([a, { ...a, accountNo: '3000999999' }]), /different Yehulu accounts/)
 })
 
-test('importing again skips what is there, including the opening balance once history exists', () => {
-  const lines = [
-    { type: 'deposit', amount: 500, date: '2026-03-01', ref: 'opening-2026-03-01' },
-    { type: 'deposit', amount: 100, date: '2026-03-02', ref: 'FT1:10000' },
-    { type: 'withdrawal', amount: 50, date: '2026-03-03', ref: 'TT2:-5010' },
-  ]
-  assert.equal(newLines(lines, []).length, 3)
-  assert.deepEqual(newLines(lines, [{ date: '2026-03-02', ref: 'FT1:10000' }]).map(t => t.ref), ['opening-2026-03-01', 'TT2:-5010'])
-  // Earlier history in the account: the opening balance is already there.
-  assert.deepEqual(newLines(lines, [{ date: '2026-01-10', ref: 'X' }]).map(t => t.ref), ['FT1:10000', 'TT2:-5010'])
+// ---- importing into an account, in any order ------------------------------
+
+let ids = 0
+const newId = () => `t${++ids}`
+const pct = (rates) => rates.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: 0.1 }))
+/** Imports statements into `account` ({ transactions, rates }) the way the app does. */
+const importInto = (account, statements) => {
+  const result = buildImport(statements)
+  const found = result.rates.map(r => ({ ...r, serviceCharge: 10 }))
+  const plan = planImport({
+    existing: account.transactions, lines: result.transactions.map(t => ({ ...t, id: newId() })), anchors: result.anchors,
+    currentRates: account.rates.length ? account.rates : found, foundRates: found, useRates: true,
+    period: { from: result.from, to: result.to }, newId,
+  })
+  const gone = new Set(plan.remove)
+  return { transactions: [...account.transactions.filter(t => !gone.has(t.id)), ...plan.add], rates: plan.rates ?? account.rates, plan }
+}
+const empty = { transactions: [], rates: [] }
+const balanceOn = (account, day) => simulateLedger({ transactions: account.transactions, rates: pct(account.rates), fromDate: day, endDate: day })
+  .find(r => r.date === day).balance
+
+// Four months, cut into four statements (deposits and withdrawals along the way).
+const months = (() => {
+  const moves = {
+    '2026-01-01': [{ type: 'Transfer Credit', amount: 20000000 }],
+    '2026-02-10': [{ type: 'Cash Withdrawal', amount: -1002000 }],
+    '2026-03-05': [{ type: 'Transfer Credit', amount: 5000000 }],
+    '2026-04-12': [{ type: 'Standing Order', amount: -1000 }],
+  }
+  const rows = statementRows({ from: '2026-01-01', days: 120, rate: 40, moves })
+  const cuts = ['2026-02-01', '2026-03-01', '2026-04-01'].map(d => rows.findIndex(r => r.book === d))
+  const parts = [rows.slice(0, cuts[0]), rows.slice(cuts[0], cuts[1]), rows.slice(cuts[1], cuts[2]), rows.slice(cuts[2])]
+  return { final: rows.at(-1).balance / 100, last: rows.at(-1).book, parts: parts.map(p => parseStatementPages([page(p)])) }
+})()
+const [jan, feb, mar, apr] = months.parts
+
+test('all statements at once: exact, and no bridges', () => {
+  const acc = importInto(empty, [jan, feb, mar, apr])
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(acc.transactions.filter(t => t.ref?.startsWith('gap-')).length, 0)
 })
 
-test("an odd first credit is spotted and an adjustment offered from the next day", () => {
-  const cmp = { firstDifference: { date: '2025-08-15', app: 300740.18, yehulu: 300780.82 } }
-  assert.deepEqual(adjustmentFor(cmp), { type: 'deposit', amount: 40.64, date: '2025-08-16', note: 'Statement difference', ref: 'adjust-2025-08-15', noFee: true })
+test('a statement missing in the middle is bridged, and the bridge goes when it arrives', () => {
+  let acc = importInto(empty, [jan, feb, apr])
+  assert.equal(acc.transactions.filter(t => t.ref?.startsWith('gap-')).length, 1, 'bridged')
+  assert.equal(balanceOn(acc, months.last), months.final, 'right after the gap')
+  acc = importInto(acc, [mar])
+  assert.equal(acc.transactions.filter(t => t.ref?.startsWith('gap-')).length, 0, 'bridge removed')
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(acc.plan.remove.length, 1)
+})
+
+test('newest first, then older ones: the later opening balance is replaced by real history', () => {
+  let acc = importInto(empty, [apr])
+  assert.equal(acc.transactions.filter(t => t.ref?.startsWith('opening-')).length, 1)
+  assert.equal(balanceOn(acc, months.last), months.final)
+  acc = importInto(acc, [feb])
+  assert.equal(balanceOn(acc, months.last), months.final, 'gap before April bridged')
+  acc = importInto(acc, [jan, mar])
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(acc.transactions.filter(t => t.ref?.startsWith('gap-') || t.ref?.startsWith('opening-')).length, 0, 'nothing stand-in left')
+})
+
+test('importing the same statements again adds nothing', () => {
+  const acc = importInto(empty, [jan, feb, mar, apr])
+  const again = importInto(acc, [feb, apr])
+  assert.equal(again.plan.add.length, 0)
+  assert.equal(again.plan.remove.length, 0)
+  assert.equal(again.plan.skipped, feb.rows.filter(r => !r.type.startsWith('Interest') && r.type !== 'Debit Arrangement').length
+    + apr.rows.filter(r => !r.type.startsWith('Interest') && r.type !== 'Debit Arrangement').length + 1, 'incl. the opening balance')
+})
+
+test("a statement's rates only change the days it covers", () => {
+  const existing = [{ from: '2025-01-01', annualRate: 40 }, { from: '2026-06-01', annualRate: 45 }]
+  assert.deepEqual(mergeRates(existing, [{ from: '2026-02-01', annualRate: 35 }], '2026-02-01', '2026-02-28'), [
+    { from: '2025-01-01', annualRate: 40 }, { from: '2026-02-01', annualRate: 35 }, { from: '2026-03-01', annualRate: 40 }, { from: '2026-06-01', annualRate: 45 },
+  ])
+  // Same rate as around it: nothing changes.
+  assert.deepEqual(mergeRates(existing, [{ from: '2026-02-01', annualRate: 40 }], '2026-02-01', '2026-02-28'), existing)
 })

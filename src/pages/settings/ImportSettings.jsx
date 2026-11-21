@@ -7,8 +7,8 @@ import { Card } from '../../components/ui/Card.jsx'
 import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
 import { simulateLedger } from '../../lib/interest.js'
-import { adjustmentFor, buildImport, compareWithStatement, newLines, readStatementPdf } from '../../lib/statement.js'
-import { MAX_ACCOUNTS, ratesOf, toFraction } from '../../lib/storage.js'
+import { buildImport, compareWithStatement, planImport, readStatementPdf } from '../../lib/statement.js'
+import { MAX_ACCOUNTS, memberRateList, toFraction } from '../../lib/storage.js'
 import { useSavings } from '../../state/hooks.js'
 
 const NEW = 'new'
@@ -91,7 +91,6 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const [memberId, setMemberId] = useState(null)
   const who = target?.cloud ? (canPickMember ? memberId ?? me : me) : null
   const [useRates, setUseRates] = useState(true)
-  const [adjust, setAdjust] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
@@ -101,39 +100,40 @@ function Review({ result, fileCount, onDone, onCancel }) {
     noFee: result.transactions.filter(t => t.noFee).length,
   }), [result])
 
-  // Already in the chosen account (imported before, or its opening balance).
-  const already = useMemo(() => {
-    if (!target) return 0
-    const existing = target.transactions.filter(t => !target.cloud || t.memberId === who)
-    return result.transactions.length - newLines(result.transactions, existing).length
-  }, [target, who, result])
-
-  // The rates the check uses: the statement's, or the chosen account's.
-  const rates = useMemo(() => {
-    if ((useRates || !target) && result.rates.length) return result.rates.map(r => toFraction({ ...r, serviceCharge: 10 }))
-    return target ? ratesOf(target, who) : [toFraction({ annualRate: 40, serviceCharge: 10 })]
-  }, [useRates, target, who, result])
-
-  // Run the app's own maths over the statement and compare, day by day.
-  const check = useMemo(() => {
-    const run = (list) => compareWithStatement(simulateLedger({ transactions: list, rates, fromDate: result.to, endDate: result.to }), result.expected)
-    const plain = run(result.transactions)
-    const fix = adjustmentFor(plain)
-    return { plain, fix, fixed: fix ? run([...result.transactions, fix]) : null }
-  }, [rates, result])
-
-  const shown = adjust && check.fixed ? check.fixed : check.plain
-  // The adjustment counts unless it's already in the account from last time.
-  const addFix = Boolean(adjust && check.fix && (!target || newLines([check.fix], target.transactions.filter(t => !target.cloud || t.memberId === who)).length))
-  const endMatches = shown.end.app != null && Math.abs(shown.end.app - shown.end.yehulu) < 0.005
+  // Exactly what the import will do to that person's money (same steps as the
+  // app's import action), then the app's maths over the result.
+  const existing = useMemo(
+    () => (target ? target.transactions.filter(t => !target.cloud || t.memberId === who) : []),
+    [target, who],
+  )
+  const preview = useMemo(() => {
+    let n = 0
+    const lines = result.transactions.map(t => ({ ...t, id: `preview-${n++}` }))
+    const found = result.rates.map(r => ({ ...r, serviceCharge: 10 }))
+    const current = target ? memberRateList(target, who) : found
+    const plan = planImport({
+      existing, lines, anchors: result.anchors, currentRates: current, foundRates: found,
+      useRates: Boolean(target && useRates), period: { from: result.from, to: result.to }, newId: () => `preview-${n++}`,
+    })
+    const gone = new Set(plan.remove)
+    const after = [...existing.filter(t => !gone.has(t.id)), ...plan.add]
+    const rates = (plan.rates ?? current).map(toFraction)
+    const check = compareWithStatement(simulateLedger({ transactions: after, rates, fromDate: result.to, endDate: result.to }), result.expected)
+    return { plan, check }
+  }, [result, target, who, useRates, existing])
+  const { plan, check } = preview
+  const missing = plan.bridges.filter(b => b.note.startsWith('Missing'))
+  const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
+  const replacing = plan.remove.length
+  const endMatches = check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005
 
   const doImport = () => {
     setError(null)
     if (into === NEW && !name.trim()) return setError('Give the new account a name.')
     setBusy(true)
-    const transactions = addFix ? [...result.transactions, check.fix] : result.transactions
     const outcome = actions.importStatement({
-      into, name: name.trim().slice(0, 40), memberId: who, transactions, rates: result.rates, useRates: into === NEW || useRates,
+      into, name: name.trim().slice(0, 40), memberId: who, transactions: result.transactions, anchors: result.anchors,
+      rates: result.rates, useRates: into === NEW || useRates, period: { from: result.from, to: result.to },
     })
     setBusy(false)
     if (outcome.error) return setError(outcome.error)
@@ -152,10 +152,23 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <p className="py-2 text-xs text-muted">Interest and charges aren't copied: the app works them out, the same way Yehulu does.</p>
       </Card>
 
-      {result.gaps.length > 0 && (
+      {missing.length > 0 && (
         <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
           <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-          A statement seems to be missing between {result.gaps.map(g => `${formatDate(g.after)} and ${formatDate(g.before)}`).join(', ')}.
+          <span>
+            {missing.length === 1 ? 'A statement is missing' : `${missing.length} statements are missing`} (before{' '}
+            {missing.map(b => formatDate(b.date)).join(', ')}).
+            <span className="block text-xs">
+              The balance is carried over so everything after is right. Import the missing statement any time, in any
+              order: it fills the gap in.
+            </span>
+          </span>
+        </p>
+      )}
+      {replacing > 0 && (
+        <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
+          <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          This fills in history that was missing in {target.name}.
         </p>
       )}
 
@@ -182,22 +195,19 @@ function Review({ result, fileCount, onDone, onCancel }) {
           {endMatches ? <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />}
           <span>
             {endMatches
-              ? `Matches: the app also gets ${formatMoney(shown.end.yehulu)} on ${formatDate(shown.end.date)}.`
-              : `The app gets ${formatMoney(shown.end.app ?? 0)} on ${formatDate(shown.end.date)}; the statement says ${formatMoney(shown.end.yehulu)}.`}
-            <span className="block text-xs text-muted">{shown.matched} of {shown.days} days match to the santim.</span>
+              ? `Matches: the app also gets ${formatMoney(check.end.yehulu)} on ${formatDate(check.end.date)}.`
+              : `The app gets ${formatMoney(check.end.app ?? 0)} on ${formatDate(check.end.date)}; the statement says ${formatMoney(check.end.yehulu)}.`}
+            <span className="block text-xs text-muted">
+              {check.matched} of {check.days} days match to the santim{missing.length ? ' (days in a missing statement can\'t be checked)' : ''}.
+            </span>
           </span>
         </p>
-        {check.fix && (
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" checked={adjust} onChange={(e) => setAdjust(e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand" />
-            <span>
-              Add a {formatMoney(check.fix.amount)} {check.fix.type === 'deposit' ? 'top-up' : 'correction'} on {formatDate(check.fix.date)}
-              <span className="block text-xs text-muted">
-                Yehulu credited {formatMoney(Math.abs(check.plain.firstDifference.yehulu - check.plain.firstDifference.app))} differently
-                on {formatDate(check.plain.firstDifference.date)} (this happens on the first credit after an account opens).
-              </span>
-            </span>
-          </label>
+        {firstCredit && (
+          <p className="text-xs text-muted">
+            Yehulu's first credit was {formatMoney(firstCredit.amount)} {firstCredit.type === 'deposit' ? 'more' : 'less'} than its
+            usual rule (this happens when an account opens). The app adds that on {formatDate(firstCredit.date)} so it
+            follows the statement.
+          </p>
         )}
       </Card>
 
@@ -221,17 +231,17 @@ function Review({ result, fileCount, onDone, onCancel }) {
             </select>
           </Field>
         )}
-        {already > 0 && (
-          <p className="text-xs text-muted">{already} of these are already in {target.name} and will be skipped.</p>
+        {target && plan.skipped > 0 && (
+          <p className="text-xs text-muted">{plan.skipped} of these are already in {target.name} and will be skipped.</p>
         )}
       </Card>
 
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button onClick={doImport} disabled={busy || (into !== NEW && already === result.transactions.length && !addFix)}>
+        <Button onClick={doImport} disabled={busy || plan.add.length === 0}>
           {(() => {
-            const n = result.transactions.length - already + (addFix ? 1 : 0)
+            const n = plan.add.length
             return `Import ${n} transaction${n === 1 ? '' : 's'}`
           })()}
         </Button>

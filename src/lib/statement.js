@@ -14,7 +14,7 @@
 //     app works them out, and they are used only to find the rates.
 
 import { addDays } from './dates.js'
-import { withdrawalFee } from './interest.js'
+import { periodOn, simulateLedger, withdrawalFee } from './interest.js'
 
 const MONTHS = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
 const DATE = /^(\d\d) ([A-Z]{3}) (\d\d)$/
@@ -208,11 +208,13 @@ export function buildImport(statements) {
   const seen = new Set()
   const rows = []
   const gaps = []
+  const starts = [] // where each statement's own rows begin
   sorted.forEach((s, i) => {
     const prev = sorted[i - 1]
     if (prev && !s.rows.some(r => seen.has(key(r))) && prev.closing !== s.opening) {
       gaps.push({ after: prev.rows.at(-1).bookDate, before: s.rows[0].bookDate })
     }
+    starts.push(rows.length)
     for (const r of s.rows) {
       if (seen.has(key(r))) continue
       seen.add(key(r))
@@ -294,6 +296,17 @@ export function buildImport(statements) {
   const rates = findRates(interestLines)
   // The first rate also covers everything before it.
   if (rates.length) rates[0] = { ...rates[0], from }
+  // Fixed points: Yehulu's balance at the end of each statement's first day.
+  // Whatever history the app has (or lacks) before it, it must reach this.
+  const anchors = []
+  for (const start of starts) {
+    const i = [...dayOf.keys()].find(k => k >= start)
+    if (i == null || !rows[start]) continue
+    const day = dayOf.get(i)
+    // `start`: where that statement begins, to tell a missing statement (history
+    // before it) from an odd first credit (nothing before it).
+    if (!anchors.some(a => a.date === day)) anchors.push({ date: day, value: expected.get(day), start: rows[start].bookDate })
+  }
   return {
     accountNo: first.accountNo,
     holder: first.holder,
@@ -304,27 +317,109 @@ export function buildImport(statements) {
     transactions,
     rates,
     expected,
+    anchors,
     gaps,
   }
 }
 
-/**
- * The lines to add to an account that already has `existing` transactions:
- * drops lines imported before (same reference), and the statement's opening
- * balance when the account already has history before it (that money is
- * already there).
- */
-export function newLines(lines, existing) {
-  const known = new Set(existing.map(t => t.ref).filter(Boolean))
-  const earliest = existing.map(t => t.date).sort()[0]
-  return lines.filter(t => {
-    if (t.ref && known.has(t.ref)) return false
-    if (t.ref?.startsWith('opening-') && earliest && earliest < t.date) return false
-    return true
-  })
+const key = (r) => `${r.bookDate}|${r.ref}|${r.type}|${r.amount}|${r.balance}`
+
+const isBridge = (t) => Boolean(t.ref?.startsWith('gap-'))
+const isOpening = (t) => Boolean(t.ref?.startsWith('opening-'))
+const signed = (t) => (t.type === 'deposit' ? t.amount : -(t.amount + (t.noFee ? 0 : withdrawalFee(t.amount))))
+
+/** The app's balance at the end of `day` (after that day's interest). */
+const endOf = (transactions, rates, day) => {
+  const before = transactions.filter(t => t.date <= day)
+  if (!before.length) return 0
+  return simulateLedger({ transactions: before, rates, fromDate: day, endDate: day }).at(-1).balance
 }
 
-const key = (r) => `${r.bookDate}|${r.ref}|${r.type}|${r.amount}|${r.balance}`
+/**
+ * Bridges that make the app reach every anchor: if the balance at the end of
+ * an anchor day isn't the statement's, a bridge on the next day makes up the
+ * difference. With complete history there's nothing to bridge; with a
+ * statement missing, the bridge carries the balance over the gap; at the very
+ * start it covers Yehulu's odd first credit.
+ */
+export function bridgesFor(transactions, anchors, rates) {
+  const bridges = []
+  for (const { date, value, start, missing } of [...anchors].sort((a, b) => a.date.localeCompare(b.date))) {
+    const app = endOf([...transactions, ...bridges], rates, date)
+    const amount = round2(value - app)
+    if (Math.abs(amount) < 0.01) continue
+    const hasHistory = missing ?? transactions.some(t => t.date < (start ?? date) && !isOpening(t))
+    bridges.push({
+      type: amount > 0 ? 'deposit' : 'withdrawal',
+      amount: Math.abs(amount),
+      date: addDays(date, 1),
+      note: hasHistory ? 'Missing statement (until it is imported)' : 'Statement difference (first credit)',
+      ref: `gap-${date}`,
+      noFee: true,
+    })
+  }
+  return bridges
+}
+
+/**
+ * What importing does to one person's money in an account. Pure, so the app
+ * and the tests run exactly the same steps.
+ *   existing: that person's transactions now ([] for a new account)
+ *   lines: the statements' transactions (with ids); anchors: from buildImport
+ *   currentRates / foundRates: [{ from, annualRate, serviceCharge }] (percent)
+ *   useRates: put the found rates into the history (for the statements' days)
+ *   period: { from, to } of the statements; newId: ids for new bridges
+ * Returns { add, remove (ids), rates (new history, or null), skipped, bridges }.
+ *
+ * Statements can come in any order and with gaps: each import recomputes the
+ * bridges from every anchor, so a missing statement is carried over until it
+ * arrives, and then its bridge goes.
+ */
+export function planImport({ existing, lines, anchors, currentRates, foundRates, useRates, period, newId }) {
+  const fractions = (list) => list.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: (r.serviceCharge ?? 10) / 100 }))
+  const rates = useRates && foundRates.length ? mergeRates(currentRates, foundRates, period.from, period.to) : null
+  const before = fractions(currentRates)
+  const after = fractions(rates ?? currentRates)
+
+  // Anchors the account already has, read back from its bridges (and from
+  // statement opening balances) as things stand now.
+  const oldBridges = existing.filter(isBridge)
+  const real = existing.filter(t => !isBridge(t))
+  const known = new Set(real.map(t => t.ref).filter(Boolean))
+  const added = lines.filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)))
+  let base = [...real, ...added]
+  const oldAnchors = oldBridges.map(b => {
+    const day = addDays(b.date, -1)
+    const missing = b.note?.startsWith('Missing') ? undefined : false
+    return { date: day, value: round2(endOf(existing, before, day) + signed(b)), missing }
+  })
+
+  // An opening balance is only needed where there's no history before it.
+  const openings = base.filter(t => isOpening(t) && base.some(o => o.date < t.date && !isOpening(o)))
+  const openingAnchors = openings
+    .filter(t => existing.some(e => e.id === t.id))
+    .map(t => ({ date: t.date, value: round2(endOf(existing, before, t.date)) }))
+  const dropped = new Set(openings.map(t => t.id))
+  base = base.filter(t => !dropped.has(t.id))
+
+  // Newest knowledge wins: the statements being imported, then the account's.
+  const byDate = new Map()
+  for (const a of [...oldAnchors, ...openingAnchors, ...anchors]) byDate.set(a.date, a)
+  const bridges = bridgesFor(base, [...byDate.values()], after)
+
+  // Keep bridges that didn't change, so nothing moves needlessly.
+  const same = (a, b) => a.date === b.date && a.type === b.type && Math.abs(a.amount - b.amount) < 0.005
+  const keep = new Set(oldBridges.filter(o => bridges.some(b => same(o, b))).map(o => o.id))
+  const newBridges = bridges.filter(b => !oldBridges.some(o => keep.has(o.id) && same(o, b))).map(b => ({ ...b, id: newId() }))
+  const addedKept = added.filter(t => !dropped.has(t.id))
+  return {
+    add: [...addedKept, ...newBridges],
+    remove: [...oldBridges.filter(o => !keep.has(o.id)).map(o => o.id), ...existing.filter(t => dropped.has(t.id)).map(t => t.id)],
+    rates,
+    skipped: lines.length - addedKept.length,
+    bridges,
+  }
+}
 
 /**
  * Compares the app's ledger with the statement, day by day. Returns
@@ -347,21 +442,18 @@ export function compareWithStatement(ledger, expected) {
 }
 
 /**
- * The adjustment that makes the app follow the statement from the first day
- * they differ (e.g. Yehulu's first credit after opening an account), dated the
- * next day so it's part of the balance from then on. Null if none is needed.
+ * Puts a statement's rates into an account's existing history: only the days
+ * the statement covers change. The rate in force before and after it stays.
+ *   existing, found: [{ from, annualRate, ... }]
  */
-export function adjustmentFor(comparison) {
-  const d = comparison.firstDifference
-  if (!d) return null
-  const amount = round2(d.yehulu - d.app)
-  if (amount === 0) return null
-  return {
-    type: amount > 0 ? 'deposit' : 'withdrawal',
-    amount: Math.abs(amount),
-    date: addDays(d.date, 1),
-    note: 'Statement difference',
-    ref: `adjust-${d.date}`,
-    noFee: true,
-  }
+export function mergeRates(existing, found, from, to) {
+  if (!found.length) return existing
+  if (!existing.length) return found
+  const after = addDays(to, 1)
+  const keepBefore = existing.filter(p => p.from < from)
+  const keepAfter = existing.filter(p => p.from > to)
+  const resume = keepAfter.some(p => p.from === after) ? [] : [{ ...periodOn(existing, after), from: after }]
+  const merged = [...keepBefore, ...found, ...resume, ...keepAfter].sort((a, b) => a.from.localeCompare(b.from))
+  // Drop periods that don't change the rate.
+  return merged.filter((p, i) => i === 0 || p.annualRate !== merged[i - 1].annualRate)
 }
