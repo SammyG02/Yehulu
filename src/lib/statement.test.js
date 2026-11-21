@@ -364,3 +364,60 @@ test('Q: a reversed withdrawal (money back, fee included) nets to exactly nothin
   assert.equal(cmp.matched, cmp.days, 'every day still matches')
   assert.deepEqual(imp.transactions.map(t => [t.type, t.amount]), [['deposit', 100000], ['withdrawal', 10000], ['deposit', 10020]])
 })
+
+// ---- data integrity ------------------------------------------------------------
+
+test('long lists are read in full, past the 1,000-row page limit, with nothing repeated', async () => {
+  const { readAll } = await import('./cloud.js')
+  const table = Array.from({ length: 2345 }, (_, i) => ({ id: i }))
+  const calls = []
+  const query = () => ({ range: async (from, to) => { calls.push([from, to]); return { data: table.slice(from, Math.min(to + 1, from + 1000)), error: null } } })
+  const rows = await readAll(query)
+  assert.equal(rows.length, 2345)
+  assert.equal(new Set(rows.map(r => r.id)).size, 2345)
+  assert.deepEqual(calls, [[0, 999], [1000, 1999], [2000, 2999]])
+})
+
+test('your own entries that a statement also shows are not added twice; others are listed, not touched', () => {
+  const own = [
+    { id: 'm1', type: 'deposit', amount: 200000, date: '2026-01-02', note: 'typed in' }, // statement: Jan 1
+    { id: 'm2', type: 'withdrawal', amount: 777, date: '2026-01-20', note: 'not on the statement' },
+  ]
+  const acc = importInto({ transactions: own, rates: [{ from: '2025-01-01', annualRate: 40, serviceCharge: 10 }] }, [jan])
+  assert.equal(acc.plan.matched.length, 1)
+  assert.equal(acc.plan.matched[0].own.id, 'm1')
+  assert.deepEqual(acc.plan.unmatchedOwn.map(t => t.id), ['m2'])
+  assert.equal(acc.transactions.filter(t => t.type === 'deposit' && t.amount === 200000).length, 1, 'the 200,000 is there once')
+  assert.ok(acc.transactions.some(t => t.id === 'm1' && t.date === '2026-01-02'), 'your entry is unchanged')
+  assert.ok(acc.transactions.some(t => t.id === 'm2'), 'never deleted')
+})
+
+test('two of your entries for two statement lines of the same amount: both matched, one each', () => {
+  const stmt = parseStatementPages([page(statementRows({
+    from: '2026-03-01', days: 6, rate: 40,
+    moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 5000000 }], '2026-03-04': [{ type: 'Transfer Credit', amount: 5000000 }] },
+  }))])
+  const own = [{ id: 'a', type: 'deposit', amount: 50000, date: '2026-03-01' }, { id: 'b', type: 'deposit', amount: 50000, date: '2026-03-04' }]
+  const acc = importInto({ transactions: own, rates: [{ from: '2025-01-01', annualRate: 40, serviceCharge: 10 }] }, [stmt])
+  assert.deepEqual(acc.plan.matched.map(m => [m.own.id, m.line.date]), [['a', '2026-03-01'], ['b', '2026-03-04']])
+  assert.equal(acc.transactions.filter(t => t.amount === 50000).length, 2)
+})
+
+test('an imported line you edited is kept as you edited it; one you deleted comes back', () => {
+  const acc = importInto(empty, [jan, feb])
+  const edited = acc.transactions.map(t => (t.note === 'Cash Withdrawal' ? { ...t, amount: 9999 } : t))
+  const again = importInto({ ...acc, transactions: edited }, [feb])
+  assert.equal(again.plan.add.filter(t => !t.ref.startsWith('gap-')).length, 0, 'not added a second time')
+  const deleted = acc.transactions.filter(t => t.note !== 'Cash Withdrawal')
+  const restored = importInto({ ...acc, transactions: deleted }, [feb])
+  assert.equal(restored.plan.add.filter(t => t.note === 'Cash Withdrawal').length, 1)
+})
+
+test('a recalculated bridge gets a new reference (so add-then-remove never collides)', () => {
+  const a = importInto(empty, [jan, apr])
+  const b = importInto(a, [mar])
+  const before = a.transactions.find(t => t.ref.startsWith('gap-'))
+  const after = b.transactions.find(t => t.ref.startsWith('gap-'))
+  assert.ok(before && after)
+  assert.notEqual(before.ref, after.ref)
+})

@@ -95,17 +95,39 @@ const check = ({ data, error }) => {
 }
 
 /** Everything the signed-in user can see, in the app's account shape. */
+// Supabase returns at most 1,000 rows per request and quietly drops the rest,
+// so long lists are read page by page, in a fixed order (no row skipped or
+// read twice between pages).
+const PAGE = 1000
+export async function readAll(query) {
+  const rows = []
+  for (let from = 0; ; from += PAGE) {
+    const page = check(await query().range(from, from + PAGE - 1))
+    rows.push(...page)
+    if (page.length < PAGE) return rows
+  }
+}
+
+/** The anonymous activity list, page by page (ordered by its row id once the database has it). */
+async function readActivity(client, accountId) {
+  try {
+    return await readAll(() => client.rpc('account_activity', { acc: accountId }).order('row_id'))
+  } catch (err) {
+    // Database without migration 005 yet: one request (fine below 1,000 rows).
+    if (!/row_id/.test(err.message)) throw err
+    return check(await client.rpc('account_activity', { acc: accountId }))
+  }
+}
+
 export async function fetchAccounts(client, userId) {
   const [accounts, members, profiles, rates, transactions] = await Promise.all([
-    client.from('accounts').select('*').then(check),
-    client.from('account_members').select('*').then(check),
-    client.from('profiles').select('*').then(check),
-    client.from('rates').select('*').then(check),
-    client.from('transactions').select('*').order('date').order('created_at').then(check),
+    readAll(() => client.from('accounts').select('*').order('id')),
+    readAll(() => client.from('account_members').select('*').order('account_id').order('user_id')),
+    readAll(() => client.from('profiles').select('*').order('id')),
+    readAll(() => client.from('rates').select('*').order('account_id').order('from_date')),
+    readAll(() => client.from('transactions').select('*').order('date').order('created_at').order('id')),
   ])
-  const activity = new Map(await Promise.all(accounts.map(async a => [
-    a.id, await client.rpc('account_activity', { acc: a.id }).then(check),
-  ])))
+  const activity = new Map(await Promise.all(accounts.map(async a => [a.id, await readActivity(client, a.id)])))
   return buildAccounts({ userId, accounts, members, profiles, rates, transactions, activity })
 }
 
@@ -153,7 +175,16 @@ export const cloudApi = (client) => ({
   /** Many at once (statement import), in chunks the server accepts. */
   async addTransactions(accountId, txns) {
     for (let i = 0; i < txns.length; i += 500) {
-      check(await client.from('transactions').insert(txns.slice(i, i + 500).map(t => toTxnRow(accountId, t))))
+      const rows = txns.slice(i, i + 500).map(t => toTxnRow(accountId, t))
+      // A statement line that's already there (another phone imported it a
+      // moment ago) is skipped by the database, never added twice.
+      const { error } = await client.from('transactions')
+        .upsert(rows, { onConflict: 'account_id,member_id,ref', ignoreDuplicates: true })
+      if (!error) continue
+      // Database without migration 005 yet: plain insert (the app already
+      // left out lines it knows are there).
+      if (!/no unique|ON CONFLICT/i.test(error.message)) throw new Error(error.message)
+      check(await client.from('transactions').insert(rows))
     }
   },
   async updateTransaction(id, changes) {

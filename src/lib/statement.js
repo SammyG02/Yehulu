@@ -13,7 +13,7 @@
 //   - Interest and its service charge ("Debit Arrangement") are skipped: the
 //     app works them out, and they are used only to find the rates.
 
-import { addDays } from './dates.js'
+import { addDays, daysBetween } from './dates.js'
 import { periodOn, simulateLedger, withdrawalFee } from './interest.js'
 
 const MONTHS = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
@@ -393,6 +393,10 @@ function keyRows(rows) {
   }
 }
 
+// How far apart (in days) your own entry and the statement's line may be and
+// still be the same money (a deposit made late in the day, a weekend).
+const MATCH_DAYS = 3
+
 const isBridge = (t) => Boolean(t.ref?.startsWith('gap-'))
 const isOpening = (t) => Boolean(t.ref?.startsWith('opening-'))
 const signed = (t) => (t.type === 'deposit' ? t.amount : -(t.amount + (t.noFee ? 0 : withdrawalFee(t.amount))))
@@ -423,7 +427,9 @@ export function bridgesFor(transactions, anchors, rates) {
       amount: Math.abs(amount),
       date: addDays(date, 1),
       note: hasHistory ? 'Missing statement (until it is imported)' : 'Statement difference (first credit)',
-      ref: `gap-${date}`,
+      // Includes the amount: a recalculated bridge is a new line, so adding it
+      // before removing the old one never collides.
+      ref: `gap-${date}:${amount}`,
       noFee: true,
     })
   }
@@ -456,9 +462,30 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
   const real = existing.filter(t => !isBridge(t))
   const known = new Set(real.map(t => t.ref).filter(Boolean))
   // Lines imported by an earlier version of the app carry the older reference.
-  const added = lines
+  const fresh = lines
     .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRef && known.has(t.legacyRef)))
     .map(({ legacyRef: _legacy, ...t }) => t)
+
+  // Money you entered yourself (no statement reference) that is the same as a
+  // statement line: same kind, same amount, within 3 days. It's already
+  // counted, so the statement's copy isn't added. Your entry is left as it is.
+  const own = real.filter(t => !t.ref)
+  const used = new Set()
+  const matched = []
+  const added = fresh.filter(line => {
+    if (isOpening(line)) return true
+    const candidates = own
+      .filter(m => !used.has(m.id) && m.type === line.type && Math.abs(m.amount - line.amount) < 0.005
+        && Math.abs(daysBetween(m.date, line.date)) <= MATCH_DAYS)
+      .sort((a, b) => Math.abs(daysBetween(a.date, line.date)) - Math.abs(daysBetween(b.date, line.date)))
+    if (!candidates.length) return true
+    used.add(candidates[0].id)
+    matched.push({ own: candidates[0], line })
+    return false
+  })
+  // Your own entries in the statement's period that it doesn't show: listed
+  // for you to check, never changed.
+  const unmatchedOwn = own.filter(t => !used.has(t.id) && t.date >= period.from && t.date <= period.to)
   let base = [...real, ...added]
   const oldAnchors = oldBridges.map(b => {
     const day = addDays(b.date, -1)
@@ -488,7 +515,9 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
     add: [...addedKept, ...newBridges],
     remove: [...oldBridges.filter(o => !keep.has(o.id)).map(o => o.id), ...existing.filter(t => dropped.has(t.id)).map(t => t.id)],
     rates,
-    skipped: lines.length - addedKept.length,
+    skipped: lines.length - addedKept.length - matched.length,
+    matched,
+    unmatchedOwn,
     bridges,
   }
 }

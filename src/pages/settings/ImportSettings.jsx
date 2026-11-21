@@ -152,6 +152,34 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <p className="py-2 text-xs text-muted">Interest and charges aren't copied: the app works them out, the same way Yehulu does.</p>
       </Card>
 
+      {plan.matched.length > 0 && (
+        <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
+          <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <span>
+            {plan.matched.length} of these {plan.matched.length === 1 ? 'is' : 'are'} already in {target?.name} as {plan.matched.length === 1 ? 'an entry' : 'entries'} you
+            added yourself, so {plan.matched.length === 1 ? "it won't" : "they won't"} be added again.
+            {plan.matched.some(m => m.own.date !== m.line.date) && (
+              <span className="block text-xs">
+                {plan.matched.filter(m => m.own.date !== m.line.date).length} of yours {plan.matched.filter(m => m.own.date !== m.line.date).length === 1 ? 'has' : 'have'} a
+                different date from the statement. Your dates are kept; edit them to the statement's dates for the balance to match exactly.
+              </span>
+            )}
+          </span>
+        </p>
+      )}
+      {plan.unmatchedOwn.length > 0 && (
+        <div className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
+          <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <span>
+            {plan.unmatchedOwn.length} {plan.unmatchedOwn.length === 1 ? 'entry' : 'entries'} you added yourself in this period {plan.unmatchedOwn.length === 1 ? "isn't" : "aren't"} on the statement.
+            Nothing is changed; check {plan.unmatchedOwn.length === 1 ? 'it' : 'them'} in Activity:
+            <span className="block text-xs">
+              {plan.unmatchedOwn.slice(0, 5).map(t => `${formatDate(t.date)} ${t.type === 'deposit' ? '+' : '−'}${formatMoney(t.amount)}`).join(' · ')}
+              {plan.unmatchedOwn.length > 5 ? ' …' : ''}
+            </span>
+          </span>
+        </div>
+      )}
       {result.fixes.length > 0 && (
         <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
           <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />

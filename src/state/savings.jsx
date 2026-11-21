@@ -481,8 +481,10 @@ export function SavingsProvider({ children }) {
     }), into))
     if (target.cloud) {
       remote(async () => {
-        for (const id of filled) await api.deleteTransaction(id)
+        // Add first, then remove stand-ins: if the connection drops halfway,
+        // nothing is missing (importing again finishes the job).
         if (fresh.length) await api.addTransactions(target.id, fresh)
+        for (const id of filled) await api.deleteTransaction(id)
         if (memberRates) await api.setMemberRates(target.id, who, memberRates)
         else if (accountRates) await api.setRates(target.id, accountRates)
       })
