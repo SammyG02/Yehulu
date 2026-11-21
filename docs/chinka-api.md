@@ -25,7 +25,7 @@ Authorization: Bearer ykn_...
 | `account=<id>` | Return only this account |
 | `daily=0` | Leave out the day-by-day interest rows. The response is much smaller; use it for a quick balance refresh. |
 
-The endpoint accepts `GET` only. CORS is open, so it can also be called from a browser.
+It accepts `GET` only. CORS is open, so it can also be called from a browser.
 
 ## The response
 
@@ -97,12 +97,65 @@ The response is JSON. Amounts are Birr (ETB) as numbers with 2 decimals, and dat
 - **Owner, or "members see everyone's money" on:** everyone's transactions, plus `members` and `total_balance`.
 - **Otherwise:** only their own transactions; `members` and `total_balance` are absent.
 
+## Goal calculator
+
+The calculator answers: "Starting with X and saving Y a month, when do I reach my target?" It can also say how much a month is needed to reach a target by a given date. It uses Yehulu's own interest rules, so its answers match the app's goal planner.
+
+```
+GET https://yehulu-tracking.vercel.app/api/chinka/v1/goal?target=500000&amount=100000&monthly=10000&rate=40&by=2027-12-31
+Authorization: Bearer ykn_...
+```
+
+The same fields can also be sent as a JSON body with `POST`.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `target` | yes | The goal, in Birr |
+| `amount` | no | Money to start with (default 0) |
+| `monthly` | no | Added every month, from next month (default 0) |
+| `rate` | no | Annual rate in % (default 40) |
+| `account` | no | A Yehulu account `id` from `/data`: start from the user's real balance, history and rate there. With it, `amount` is added on top and `rate` overrides from today. |
+| `by` | no | A date (`YYYY-MM-DD`): also return the monthly deposit needed to reach the target by then |
+
+**The response:**
+
+```jsonc
+{
+  "version": 1, "currency": "ETB", "today": "2026-11-21",
+  "input": { "target": 500000, "start_balance": 100000, "monthly": 10000, "rate": 40, "account": null },
+  "reached": true,
+  "goal": {
+    "date": "2028-09-21",
+    "takes": { "days": 670, "years": 1, "months": 10, "extra_days": 0, "text": "1 year, 10 months" },
+    "deposits_from_today": 320000,   // the starting amount plus the monthly deposits
+    "interest_from_today": 181332.37,
+    "balance_then": 501332.37
+  },
+  "yearly": [ { "year": 1, "date": "2027-11-21", "balance": 285950.84 }, … ],
+  "by": { "by": "2027-12-31", "possible": true, "monthly_needed": 22154 },   // only with ?by=
+  "note": "Assumes the rate stays the same and nothing is withdrawn. …"
+}
+```
+
+**When it can't be reached:**
+- **Not within 50 years:** `reached` is `false` and `goal.reason` says why.
+- **Not by the `by` date:** `by.possible` is `false`, with a `reason`.
+
+Bad input returns `400`, with what's wrong in `error`, for example `"target must be more than 0; rate must be 0 to 100"`.
+
+## Limits
+
+Each access key may make **60 requests a minute** and **5,000 a day**, counting both endpoints. Over the limit, Yehulu answers `429` with a `Retry-After` header (in seconds) and `"retry_after"` in the body. Wait that long before trying again.
+
 ## Errors
 
 | Status | Meaning | What to do |
 |---|---|---|
+| 400 | Bad calculator input | Fix what `error` says |
 | 401 | Missing, malformed, unknown or disconnected key | Ask the user to connect again |
-| 405 | Not a GET request | Use GET |
+| 404 | `account` isn't one this key can read | Use an `id` from `/data` |
+| 405 | Wrong method | `/data`: GET. `/goal`: GET or POST |
+| 429 | Too many requests | Wait `Retry-After` seconds |
 | 502 / 503 | Yehulu temporarily unavailable | Retry later, with backoff |
 
 Error bodies look like `{ "error": "…" }`.

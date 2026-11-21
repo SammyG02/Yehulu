@@ -10,22 +10,9 @@
 // See docs/chinka-api.md.
 
 import { feeOf, interestByMonth, simulateLedger, summarize } from '../../../src/lib/interest.js'
+import { admit, rpc, send, todayInAddis } from '../../_lib/app.js'
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL
-const PUBLIC_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const SERVICE_CHARGE = 10
-
-const send = (res, status, body) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  res.setHeader('Cache-Control', 'no-store')
-  res.setHeader('Content-Type', 'application/json; charset=utf-8')
-  res.status(status).send(body === null ? '' : JSON.stringify(body))
-}
-
-/** Today in Ethiopia (the day the app's interest is counted to). */
-const todayInAddis = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Addis_Ababa' }).format(new Date())
 
 const round2 = (x) => Math.round(x * 100) / 100
 const toFractions = (rates) => rates.map(r => ({ from: r.from, annualRate: Number(r.annual_rate) / 100, serviceCharge: SERVICE_CHARGE / 100 }))
@@ -55,20 +42,15 @@ function money(transactions, rates, today, withDaily) {
 }
 
 export default async function handler(req, res) {
-  if (req.method === 'OPTIONS') return send(res, 204, null)
-  if (req.method !== 'GET') return send(res, 405, { error: 'Use GET.' })
-  if (!SUPABASE_URL || !PUBLIC_KEY) return send(res, 503, { error: 'Not set up on this server.' })
+  const key = await admit(req, res, ['GET'])
+  if (!key) return
 
-  const key = /^Bearer\s+(ykn_[0-9a-f]{64})$/i.exec(req.headers.authorization ?? '')?.[1]
-  if (!key) return send(res, 401, { error: 'Missing or malformed access key. Send: Authorization: Bearer ykn_...' })
-
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/app_read`, {
-    method: 'POST',
-    headers: { apikey: PUBLIC_KEY, Authorization: `Bearer ${PUBLIC_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ access_key: key }),
-  })
-  if (!r.ok) return send(res, 502, { error: 'Yehulu is unavailable. Try again shortly.' })
-  const data = await r.json()
+  let data
+  try {
+    data = await rpc('app_read', { access_key: key })
+  } catch {
+    return send(res, 502, { error: 'Yehulu is unavailable. Try again shortly.' })
+  }
   if (!data) return send(res, 401, { error: 'This access key is not valid or was disconnected by the user.' })
 
   const today = todayInAddis()
