@@ -223,6 +223,60 @@ test("a statement's rates only change the days it covers", () => {
   assert.deepEqual(mergeRates(existing, [{ from: '2026-02-01', annualRate: 35 }], '2026-02-01', '2026-02-28'), [
     { from: '2025-01-01', annualRate: 40 }, { from: '2026-02-01', annualRate: 35 }, { from: '2026-03-01', annualRate: 40 }, { from: '2026-06-01', annualRate: 45 },
   ])
+  // The newest statement: its rate carries on (nothing to go back to).
+  assert.deepEqual(mergeRates([{ from: '2025-01-01', annualRate: 40 }], [{ from: '2026-02-01', annualRate: 35 }], '2026-02-01', '2026-02-28'),
+    [{ from: '2025-01-01', annualRate: 40 }, { from: '2026-02-01', annualRate: 35 }])
   // Same rate as around it: nothing changes.
   assert.deepEqual(mergeRates(existing, [{ from: '2026-02-01', annualRate: 40 }], '2026-02-01', '2026-02-28'), existing)
+})
+
+// ---- the questions people ask about importing --------------------------------
+
+const standIns = (acc) => acc.transactions.filter(t => t.ref?.startsWith('gap-') || t.ref?.startsWith('opening-')).length
+const realLines = (acc) => acc.transactions.filter(t => !t.ref?.startsWith('gap-') && !t.ref?.startsWith('opening-'))
+/** A statement printed for the days [from, to) of the four months, as a separate printout. */
+const printout = (from, to = '2027-01-01', { wrap = null } = {}) => {
+  const all = [...jan.rows, ...feb.rows, ...mar.rows, ...apr.rows].filter(r => r.bookDate >= from && r.bookDate < to)
+  const rows = all.map(r => ({ book: r.bookDate, ref: r.ref, type: r.type, value: r.valueDate, amount: r.amount, balance: r.balance }))
+  // Page breaks / wrapping can differ between printouts; the reference text then does too.
+  const items = page(rows).map(t => (wrap && t.x === COL.ref && t.y < 660 ? { ...t, str: t.str.slice(0, wrap) } : t))
+  return parseStatementPages([items])
+}
+
+test('Q: the same statement twice -> nothing is added the second time', () => {
+  const once = importInto(empty, [feb])
+  const twice = importInto(once, [feb])
+  assert.equal(twice.plan.add.length, 0)
+  assert.equal(twice.transactions.length, once.transactions.length)
+})
+
+test('Q: statements that overlap in dates -> the shared days are added once', () => {
+  const acc = importInto(importInto(empty, [printout('2026-01-01', '2026-03-10')]), [printout('2026-02-15')])
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(realLines(acc).length, 4, 'four deposits/withdrawals, none doubled')
+  assert.equal(standIns(acc), 0)
+})
+
+test('Q: same transactions in a different file / printout (name, page breaks) -> recognised', () => {
+  const acc = importInto(empty, [printout('2026-01-01')])
+  const again = importInto(acc, [printout('2026-01-01', '2027-01-01', { wrap: 6 })])
+  assert.equal(again.plan.add.length, 0)
+})
+
+test('Q: part of a statement first, the full one later -> exact, nothing doubled', () => {
+  let acc = importInto(empty, [printout('2026-02-05', '2026-03-20')])
+  assert.equal(standIns(acc), 1, 'the part starts with an opening balance')
+  acc = importInto(acc, [printout('2026-01-01')])
+  assert.equal(balanceOn(acc, months.last), months.final)
+  assert.equal(realLines(acc).length, 4)
+  assert.equal(standIns(acc), 0, 'opening balance replaced by the real history')
+})
+
+test('Q: statements in random order -> the same result as in order', () => {
+  for (const order of [[mar, jan, apr, feb], [apr, mar, feb, jan], [feb, apr, jan, mar]]) {
+    const acc = order.reduce((a, s) => importInto(a, [s]), empty)
+    assert.equal(balanceOn(acc, months.last), months.final, order.map(s => s.rows[0].bookDate).join(' '))
+    assert.equal(realLines(acc).length, 4)
+    assert.equal(standIns(acc), 0)
+  }
 })

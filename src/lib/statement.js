@@ -211,13 +211,14 @@ export function buildImport(statements) {
   const starts = [] // where each statement's own rows begin
   sorted.forEach((s, i) => {
     const prev = sorted[i - 1]
-    if (prev && !s.rows.some(r => seen.has(key(r))) && prev.closing !== s.opening) {
+    keyRows(s.rows)
+    if (prev && !s.rows.some(r => seen.has(r.key)) && prev.closing !== s.opening) {
       gaps.push({ after: prev.rows.at(-1).bookDate, before: s.rows[0].bookDate })
     }
     starts.push(rows.length)
     for (const r of s.rows) {
-      if (seen.has(key(r))) continue
-      seen.add(key(r))
+      if (seen.has(r.key)) continue
+      seen.add(r.key)
       rows.push(r)
     }
   })
@@ -278,18 +279,21 @@ export function buildImport(statements) {
       return
     }
     if (r.type === CHARGE) return
-    const ref = `${r.ref || r.bookDate}:${r.amount}`
+    // The line's fingerprint (not the file name or the reference text, which
+    // can wrap differently between two printouts of the same statement).
+    const ref = `y:${r.key}`
+    const legacyRef = `${r.ref || r.bookDate}:${r.amount}`
     const date = dateOf(r, i)
     const note = r.type.slice(0, 60)
     if (r.amount > 0) {
-      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, noFee: false })
+      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRef, noFee: false })
       return
     }
     const total = -r.amount
     const base = NO_FEE.test(r.type) ? null : withoutFee(total)
     transactions.push(base == null
-      ? { type: 'withdrawal', amount: total / 100, date, note, ref, noFee: true }
-      : { type: 'withdrawal', amount: base, date, note, ref, noFee: false })
+      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRef, noFee: true }
+      : { type: 'withdrawal', amount: base, date, note, ref, legacyRef, noFee: false })
   })
 
   const from = transactions.map(t => t.date).sort()[0] ?? rows[0].bookDate
@@ -322,7 +326,20 @@ export function buildImport(statements) {
   }
 }
 
-const key = (r) => `${r.bookDate}|${r.ref}|${r.type}|${r.amount}|${r.balance}`
+/**
+ * A fingerprint for each statement line that's the same in every printout of
+ * it: date, kind, amount and the balance after it. (Two identical lines on
+ * one day with the same balance after them are told apart by their order.)
+ */
+function keyRows(rows) {
+  const count = new Map()
+  for (const r of rows) {
+    const fp = `${r.bookDate}|${r.type.slice(0, 24)}|${r.amount}|${r.balance}`
+    const n = count.get(fp) ?? 0
+    count.set(fp, n + 1)
+    r.key = n ? `${fp}#${n}` : fp
+  }
+}
 
 const isBridge = (t) => Boolean(t.ref?.startsWith('gap-'))
 const isOpening = (t) => Boolean(t.ref?.startsWith('opening-'))
@@ -386,7 +403,10 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
   const oldBridges = existing.filter(isBridge)
   const real = existing.filter(t => !isBridge(t))
   const known = new Set(real.map(t => t.ref).filter(Boolean))
-  const added = lines.filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)))
+  // Lines imported by an earlier version of the app carry the older reference.
+  const added = lines
+    .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRef && known.has(t.legacyRef)))
+    .map(({ legacyRef: _legacy, ...t }) => t)
   let base = [...real, ...added]
   const oldAnchors = oldBridges.map(b => {
     const day = addDays(b.date, -1)
@@ -452,7 +472,9 @@ export function mergeRates(existing, found, from, to) {
   const after = addDays(to, 1)
   const keepBefore = existing.filter(p => p.from < from)
   const keepAfter = existing.filter(p => p.from > to)
-  const resume = keepAfter.some(p => p.from === after) ? [] : [{ ...periodOn(existing, after), from: after }]
+  // Only go back to the old rate if the history knows something later; after
+  // the newest statement, its rate simply carries on.
+  const resume = !keepAfter.length || keepAfter.some(p => p.from === after) ? [] : [{ ...periodOn(existing, after), from: after }]
   const merged = [...keepBefore, ...found, ...resume, ...keepAfter].sort((a, b) => a.from.localeCompare(b.from))
   // Drop periods that don't change the rate.
   return merged.filter((p, i) => i === 0 || p.annualRate !== merged[i - 1].annualRate)
