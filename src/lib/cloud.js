@@ -208,6 +208,19 @@ export const cloudApi = (client) => ({
     if (/remove_statement_lines|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
     throw new Error(error.message)
   },
+  // ---- connected apps (migration 008) ----
+  /** The apps this user connected: [{ id, app, key_hint, account_ids, created_at, last_used_at }]. */
+  async listConnections() {
+    return check(await client.from('app_connections').select('id, app, key_hint, account_ids, created_at, last_used_at').order('created_at'))
+  },
+  /** Connects an app; returns its access key (shown once). accountIds null = all accounts. */
+  async connectApp(app, accountIds) {
+    return check(await client.rpc('connect_app', { app_name: app, accounts: accountIds }))
+  },
+  /** Disconnects: the key stops working at once. */
+  async disconnectApp(id) {
+    check(await client.from('app_connections').delete().eq('id', id))
+  },
   /** Many at once (statement import), in chunks the server accepts. */
   async addTransactions(accountId, txns) {
     for (let i = 0; i < txns.length; i += 500) {

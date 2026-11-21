@@ -24,7 +24,7 @@ export default [
   },
   {
     // Pure-logic tests and build config run in Node.
-    files: ['src/lib/**/*.test.js', '*.config.js'],
+    files: ['src/lib/**/*.test.js', '*.config.js', 'api/**/*.js'],
     languageOptions: { globals: { ...globals.node } },
   },
 ]

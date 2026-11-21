@@ -1,9 +1,10 @@
-import { Calculator, CircleUserRound, Database, FileText, Palette, Users, Wallet } from 'lucide-react'
+import { Calculator, CircleUserRound, Database, FileText, Palette, Plug, Users, Wallet } from 'lucide-react'
 import AccountsSettings from './AccountsSettings.jsx'
 import ProfileSettings from './ProfileSettings.jsx'
 import SharingSettings from './SharingSettings.jsx'
 import DataSettings from './DataSettings.jsx'
 import ImportSettings from './ImportSettings.jsx'
+import ConnectedAppsSettings from './ConnectedAppsSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
 import { THEME_OPTIONS } from './themeOptions.js'
@@ -42,6 +43,13 @@ export const SETTINGS_SECTIONS = [
     Component: SharingSettings,
     summary: ({ user, account }) => (!user || !account.cloud ? 'Save with friends'
       : account.members.length > 1 ? `${account.members.length} members` : 'Invite friends'),
+  },
+  {
+    path: 'connections',
+    label: 'Connected apps',
+    icon: Plug,
+    Component: ConnectedAppsSettings,
+    summary: ({ user }) => (user ? 'Chinka and other apps' : 'Sign in to connect apps'),
   },
   {
     path: 'logic',
