@@ -8,6 +8,7 @@ import { MonthlyInterestSheet } from '../components/MonthlyInterestSheet.jsx'
 import { ScopeSwitch } from '../components/accounts/ScopeSwitch.jsx'
 import { GoalCard } from '../components/GoalPlanner.jsx'
 import { GoogleButton } from '../components/auth/GoogleButton.jsx'
+import { InstallBanner } from '../components/InstallBanner.jsx'
 import { TransactionRow } from '../components/transactions/TransactionRow.jsx'
 import { Amount } from '../components/ui/Amount.jsx'
 import { ButtonLink } from '../components/ui/Button.jsx'
@@ -188,6 +189,7 @@ function Welcome() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={extra ? account.name : 'Welcome to Yehulu'} />
+      <div className="mb-3 empty:hidden md:mb-5"><InstallBanner /></div>
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-3 md:space-y-5">
         <div className={HERO}>
@@ -321,6 +323,7 @@ export default function HomePage() {
   return (
     <>
       <PageHeader eyebrow={greeting()} title={account.name} action={<ScopeSwitch />} />
+      <div className="mb-3 empty:hidden md:mb-5"><InstallBanner /></div>
       {!viewMember && overdraft && <OverdraftBanner date={overdraft} today={today} />}
 
       <div className="grid items-start gap-3 md:gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">

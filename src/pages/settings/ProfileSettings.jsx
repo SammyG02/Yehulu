@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CloudUpload, LogOut, Plus } from 'lucide-react'
 import { Avatar } from '../../components/accounts/Avatar.jsx'
+import { InstallBanner } from '../../components/InstallBanner.jsx'
 import { GoogleButton } from '../../components/auth/GoogleButton.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
@@ -54,6 +55,7 @@ export default function ProfileSettings() {
   if (!user) {
     return (
       <SettingsPanel title="Profile" description="Sign in to keep your accounts online and share them with friends.">
+      <InstallBanner always />
         {others}
         <Card className="space-y-4 p-4">
           <ul className="space-y-1.5 text-sm text-muted">
@@ -92,6 +94,7 @@ export default function ProfileSettings() {
 
   return (
     <SettingsPanel title="Profile" description="Your accounts are saved online and can be shared.">
+      <InstallBanner always />
       <Card className="flex items-center gap-3 p-4">
         <Avatar member={{ name: user.name || '?', avatarUrl: user.avatarUrl }} className="h-12 w-12" />
         <span className="min-w-0 flex-1">

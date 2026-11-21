@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router'
 import { Capacitor } from '@capacitor/core'
 import '@fontsource-variable/manrope'
 import './index.css'
+// Catches Android's install prompt as early as possible.
+import './lib/install.js'
 import App from './App.jsx'
 import { AuthProvider } from './state/auth.jsx'
 import { ConfirmProvider } from './state/confirm.jsx'
