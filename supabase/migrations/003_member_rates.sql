@@ -2,11 +2,12 @@
 -- owner can give one member their own rate history. Null means the member
 -- earns the account's rate (the default for everyone).
 --   rates: [{ "from": "2026-01-01", "annual_rate": 2 }, ...]
+-- Safe to run more than once.
 
-alter table public.account_members add column rates jsonb;
+alter table public.account_members add column if not exists rates jsonb;
 
 -- Owner only: set (or clear, with null) a member's own rates.
-create function public.set_member_rates(acc uuid, member uuid, new_rates jsonb) returns void
+create or replace function public.set_member_rates(acc uuid, member uuid, new_rates jsonb) returns void
 language plpgsql security definer set search_path = '' as $$
 declare
   item jsonb;
@@ -34,7 +35,8 @@ $$;
 
 -- The anonymous activity list also says which rates each person earns, so
 -- account totals are right even when members can't see each other's money.
-drop function public.account_activity(uuid);
+-- (If 004 already ran, this is replaced again when 004 is run after it.)
+drop function if exists public.account_activity(uuid);
 create function public.account_activity(acc uuid)
 returns table (member_key text, type text, amount numeric, date date, member_rates jsonb)
 language sql stable security definer set search_path = '' as $$
