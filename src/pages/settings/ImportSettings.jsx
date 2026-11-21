@@ -7,9 +7,9 @@ import { Card } from '../../components/ui/Card.jsx'
 import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
 import { simulateLedger } from '../../lib/interest.js'
-import { buildImport, compareWithStatement, planImport, readStatementPdf, statementAccounts } from '../../lib/statement.js'
-import { MAX_ACCOUNTS, memberRateList, toFraction } from '../../lib/storage.js'
-import { useSavings } from '../../state/hooks.js'
+import { buildImport, compareWithStatement, importedPeriods, planImport, planRemoval, readStatementPdf, statementAccounts } from '../../lib/statement.js'
+import { MAX_ACCOUNTS, memberRateList, ratesOf, toFraction } from '../../lib/storage.js'
+import { useConfirm, useSavings } from '../../state/hooks.js'
 
 const NEW = 'new'
 
@@ -356,6 +356,93 @@ function Review({ result, fileCount, onDone, onCancel }) {
   )
 }
 
+/** One imported period: remove all of it, or part of it (between two dates). */
+function ImportedPeriod({ period }) {
+  const { account, me, actions } = useSavings()
+  const confirm = useConfirm()
+  const [open, setOpen] = useState(false)
+  const [from, setFrom] = useState(period.from)
+  const [to, setTo] = useState(period.to)
+  const label = period.accountNo ? `Yehulu ••${period.accountNo.slice(-4)}` : 'Yehulu statements'
+
+  // What removing that range would do (same steps as the real removal).
+  const preview = useMemo(() => {
+    if (!open || !from || !to || from > to) return null
+    const existing = account.transactions.filter(t => !account.cloud || t.memberId === me)
+    let n = 0
+    const plan = planRemoval({ existing, accountNo: period.accountNo, from, to, rates: ratesOf(account, me), newId: () => `p${n++}` })
+    const later = existing.some(t => t.ref?.startsWith(`y:${period.accountNo}:`) && t.date > to)
+    return { ...plan.removed, total: plan.removed.deposits + plan.removed.withdrawals, later }
+  }, [open, from, to, account, me, period.accountNo])
+
+  const remove = async () => {
+    if (!preview?.total) return
+    if (!(await confirm({
+      title: `Remove ${preview.total} statement line${preview.total === 1 ? '' : 's'}?`,
+      message: `From ${label}, ${formatDate(from)} – ${formatDate(to)}, in ${account.name}. Entries you added yourself stay.`
+        + (preview.later ? ' Later statements keep matching the bank.' : ''),
+      confirmLabel: 'Remove',
+      danger: true,
+    }))) return
+    actions.removeStatement({ accountNo: period.accountNo, from, to })
+    setOpen(false)
+  }
+
+  return (
+    <li className="py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold">{label}</span>
+          <span className="block text-xs text-muted">
+            {formatDate(period.from)} – {formatDate(period.to)} · {period.lines} line{period.lines === 1 ? '' : 's'}
+          </span>
+        </span>
+        {!open && <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>Remove…</Button>}
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3 rounded-xl bg-sunken p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field id={`rm-from-${period.accountNo}`} label="From">
+              <input id={`rm-from-${period.accountNo}`} type="date" value={from} min={period.from} max={period.to} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+            </Field>
+            <Field id={`rm-to-${period.accountNo}`} label="To">
+              <input id={`rm-to-${period.accountNo}`} type="date" value={to} min={period.from} max={period.to} onChange={(e) => setTo(e.target.value)} className={inputClass} />
+            </Field>
+          </div>
+          <p className="text-xs text-muted">
+            {preview
+              ? `Removes ${preview.deposits} deposit${preview.deposits === 1 ? '' : 's'} and ${preview.withdrawals} withdrawal${preview.withdrawals === 1 ? '' : 's'} that came from statements. Your own entries stay.`
+                + (preview.later ? ' Balances after this keep matching the bank (the gap is carried over until you import it again).' : '')
+              : 'Pick a From date on or before the To date.'}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setFrom(period.from); setTo(period.to) }}>Cancel</Button>
+            <Button variant="danger" size="sm" onClick={remove} disabled={!preview?.total}>Remove</Button>
+          </div>
+        </div>
+      )}
+    </li>
+  )
+}
+
+/** What has been imported into the open account (your own money), with a way to remove it. */
+function ImportedList() {
+  const { account, me } = useSavings()
+  const periods = useMemo(
+    () => importedPeriods(account.transactions.filter(t => !account.cloud || t.memberId === me)),
+    [account, me],
+  )
+  if (!periods.length) return null
+  return (
+    <Card className="p-4 sm:p-5">
+      <h3 className="text-sm font-bold">Imported into {account.name}</h3>
+      <ul className="divide-y divide-line">
+        {periods.map(p => <ImportedPeriod key={p.accountNo || 'old'} period={p} />)}
+      </ul>
+    </Card>
+  )
+}
+
 export default function ImportSettings() {
   const navigate = useNavigate()
   const [found, setFound] = useState(null)
@@ -377,7 +464,10 @@ export default function ImportSettings() {
       ) : found ? (
         <Review result={found.result} fileCount={found.count} onCancel={() => setFound(null)} onDone={(r) => { setFound(null); setDone(r) }} />
       ) : (
-        <PickFiles onRead={(result, count) => setFound({ result, count })} />
+        <>
+          <PickFiles onRead={(result, count) => setFound({ result, count })} />
+          <ImportedList />
+        </>
       )}
     </SettingsPanel>
   )

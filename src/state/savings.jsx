@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import { useToday } from '../hooks/useToday.js'
 import { AuthContext, ConfirmContext, SavingsContext } from './contexts.js'
 import { cloudApi, fetchAccounts } from '../lib/cloud.js'
-import { planImport } from '../lib/statement.js'
+import { planImport, planRemoval } from '../lib/statement.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn } from '../lib/interest.js'
@@ -511,6 +511,33 @@ export function SavingsProvider({ children }) {
     return { added: fresh.length, skipped, filled: filled.size, accountId: into }
   }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, remote, showToast])
 
+  /**
+   * Removes the imported statement lines of one Yehulu account between two
+   * dates, from your own money in the open account (see planRemoval). Your own
+   * entries stay; later statements keep matching the bank. Returns the counts.
+   */
+  const removeStatement = useCallback(({ accountNo, from, to }) => {
+    const current = activeOf(dataRef.current)
+    const who = current.cloud ? userId : null
+    const plan = planRemoval({
+      existing: ofMember(current.transactions, who), accountNo, from, to, rates: ratesOf(current, who), newId,
+    })
+    const gone = new Set(plan.remove)
+    const added = plan.add.map(t => (current.cloud ? { ...t, memberId: who } : t))
+    setData(d => withAccount(d, a => ({ ...a, transactions: [...a.transactions.filter(t => !gone.has(t.id)), ...added] })))
+    if (current.cloud) {
+      remote(async () => {
+        if (await api.removeStatementLines(current.id, who, [...gone], added)) return
+        // Database without migration 007: add bridges first, then remove.
+        if (added.length) await api.addTransactions(current.id, added)
+        for (const id of gone) await api.deleteTransaction(id)
+      })
+    }
+    const n = plan.removed.deposits + plan.removed.withdrawals
+    showToast(`${n} statement line${n === 1 ? '' : 's'} removed`)
+    return plan.removed
+  }, [userId, setData, remote, showToast])
+
   /** Deletes an account (owner only, never the last one). Returns true if deleted. */
   const deleteAccount = useCallback((id) => {
     const { accounts } = dataRef.current
@@ -649,6 +676,7 @@ export function SavingsProvider({ children }) {
     renameAccount,
     addAccount,
     importStatement,
+    removeStatement,
     deleteAccount,
     switchAccount,
     changeRates,
@@ -680,7 +708,7 @@ export function SavingsProvider({ children }) {
     closeComposer: () => setComposer(null),
     showToast,
     dismissToast,
-  }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, importStatement, deleteAccount,
+  }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, importStatement, removeStatement, deleteAccount,
     switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 

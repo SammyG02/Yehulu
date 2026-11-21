@@ -548,3 +548,46 @@ test('atomic cloud import: sends one request; falls back only when the database 
   assert.equal(await cloudApi(client({ message: 'Could not find the function public.import_statement', code: 'PGRST202' })).importStatement('acc', 'me', [], [], null, null), false)
   await assert.rejects(cloudApi(client({ message: 'permission denied' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
 })
+
+// ---- removing imported statements -----------------------------------------------
+
+const removeFrom = async (acc, from, to) => {
+  const { planRemoval, importedPeriods } = await import('./statement.js')
+  const [p] = importedPeriods(acc.transactions)
+  const plan = planRemoval({ existing: acc.transactions, accountNo: p.accountNo, from, to, rates: pct(acc.rates), newId })
+  const gone = new Set(plan.remove)
+  return { ...acc, transactions: [...acc.transactions.filter(t => !gone.has(t.id)), ...plan.add], plan }
+}
+
+test('imported periods are listed per Yehulu account', async () => {
+  const { importedPeriods } = await import('./statement.js')
+  const acc = importInto(empty, [jan, feb, mar, apr])
+  assert.deepEqual(importedPeriods(acc.transactions).map(p => [p.accountNo, p.from, p.to, p.lines]), [['3000123456', '2026-01-01', '2026-04-12', 4]], 'from the first to the last statement line')
+})
+
+test('removing a middle statement: later balances still match the bank; importing it again restores everything', async () => {
+  const full = importInto(empty, [jan, feb, mar, apr])
+  const cut = await removeFrom(full, '2026-03-01', '2026-03-31')
+  assert.equal(cut.plan.removed.deposits, 1, 'the March deposit')
+  assert.equal(balanceOn(cut, months.last), months.final, 'later balances unchanged')
+  assert.equal(cut.transactions.filter(t => t.ref.startsWith('gap-')).length, 1, 'bridged')
+  const back = importInto(cut, [mar])
+  assert.equal(balanceOn(back, months.last), months.final)
+  assert.equal(standIns(back), 0)
+  assert.equal(realLines(back).length, 4)
+})
+
+test('removing the newest statement removes its money; earlier days unchanged', async () => {
+  const full = importInto(empty, [jan, feb, mar, apr])
+  const cut = await removeFrom(full, '2026-04-01', '2026-12-31')
+  assert.equal(cut.plan.add.length, 0, 'nothing later to keep in step')
+  assert.equal(balanceOn(cut, '2026-03-31'), balanceOn(full, '2026-03-31'))
+  assert.ok(balanceOn(cut, months.last) !== months.final)
+})
+
+test('removing never touches your own entries, and removing everything leaves only them', async () => {
+  const full = importInto(empty, [jan, feb, mar, apr])
+  const withOwn = { ...full, transactions: [...full.transactions, { id: 'mine', type: 'deposit', amount: 123, date: '2026-03-10', note: 'mine' }] }
+  const cut = await removeFrom(withOwn, '2026-01-01', '2026-12-31')
+  assert.deepEqual(cut.transactions.map(t => t.id), ['mine'])
+})

@@ -669,3 +669,71 @@ export function mergeRates(existing, found, from, to) {
   // Drop periods that don't change the rate.
   return merged.filter((p, i) => i === 0 || p.annualRate !== merged[i - 1].annualRate)
 }
+
+// ---- removing imported statements ---------------------------------------------
+
+/** The Yehulu account a statement line came from ('' for lines from before account tags), or null if not a statement line. */
+const lineAccount = (t) => {
+  if (!t.ref?.startsWith('y:')) return null
+  const m = /^y:([^:|]+):/.exec(t.ref)
+  return m ? m[1] : ''
+}
+
+/**
+ * The imported statement periods in one person's money, per Yehulu account:
+ *   [{ accountNo, from, to, lines }]
+ */
+export function importedPeriods(transactions) {
+  const by = new Map()
+  for (const t of transactions) {
+    const acct = lineAccount(t)
+    if (acct == null) continue
+    const p = by.get(acct) ?? { accountNo: acct, from: t.date, to: t.date, lines: 0 }
+    if (t.date < p.from) p.from = t.date
+    if (t.date > p.to) p.to = t.date
+    p.lines++
+    by.set(acct, p)
+  }
+  return [...by.values()].sort((a, b) => a.from.localeCompare(b.from))
+}
+
+/**
+ * What removing the statement lines of one Yehulu account between `from` and
+ * `to` does to one person's money. Your own entries are never removed.
+ * Statements after that period keep matching the bank: their balance is
+ * carried over the gap by a bridge (as if that statement was never
+ * imported), and importing it again fills the gap back in.
+ *   existing: that person's transactions; rates: fractions
+ * Returns { remove (ids), add (bridges), removed: { deposits, withdrawals } }.
+ */
+export function planRemoval({ existing, accountNo, from, to, rates, newId }) {
+  const inRange = (t) => t.date >= from && t.date <= to
+  const target = existing.filter(t => lineAccount(t) === accountNo && inRange(t))
+  const openings = existing.filter(t => isOpening(t) && inRange(t))
+  const oldBridges = existing.filter(isBridge)
+  const gone = new Set([...target, ...openings].map(t => t.id))
+
+  // Fixed points to keep: those the account already has (from its bridges),
+  // except inside the removed period, and the balance at the end of the period
+  // if statements of that account carry on after it.
+  const anchors = oldBridges
+    .map(b => ({ date: addDays(b.date, -1), value: round2(endOf(existing, rates, addDays(b.date, -1)) + signed(b)), missing: b.note?.startsWith('Missing') ? undefined : false }))
+    .filter(a => !(a.date >= from && a.date <= to))
+  const later = existing.some(t => lineAccount(t) === accountNo && t.date > to)
+  if (later) anchors.push({ date: to, value: round2(endOf(existing, rates, to)), missing: true })
+
+  const base = existing.filter(t => !gone.has(t.id) && !isBridge(t))
+  // With nothing of that account left at all, its stand-ins go too.
+  const anyLeft = base.some(t => lineAccount(t) != null)
+  const bridges = anyLeft ? bridgesFor(base, anchors, rates) : []
+  const same = (a, b) => a.date === b.date && a.type === b.type && Math.abs(a.amount - b.amount) < 0.005
+  const keep = new Set(oldBridges.filter(o => bridges.some(b => same(o, b))).map(o => o.id))
+  return {
+    remove: [...gone, ...oldBridges.filter(o => !keep.has(o.id)).map(o => o.id)],
+    add: bridges.filter(b => !oldBridges.some(o => keep.has(o.id) && same(o, b))).map(b => ({ ...b, id: newId() })),
+    removed: {
+      deposits: target.filter(t => t.type === 'deposit').length,
+      withdrawals: target.filter(t => t.type === 'withdrawal').length,
+    },
+  }
+}

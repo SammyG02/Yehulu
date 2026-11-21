@@ -193,6 +193,21 @@ export const cloudApi = (client) => ({
     if (/import_statement|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
     throw new Error(error.message)
   },
+  /**
+   * Removes imported statement lines (and adds bridges), all at once
+   * (migration 007). Returns false if the database doesn't have that yet.
+   */
+  async removeStatementLines(accountId, memberId, removeIds, bridges) {
+    const { error } = await client.rpc('remove_statement_lines', {
+      acc: accountId,
+      member: memberId,
+      remove_ids: removeIds,
+      new_rows: bridges.map(t => ({ id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '', no_fee: Boolean(t.noFee), ref: t.ref })),
+    })
+    if (!error) return true
+    if (/remove_statement_lines|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
+    throw new Error(error.message)
+  },
   /** Many at once (statement import), in chunks the server accepts. */
   async addTransactions(accountId, txns) {
     for (let i = 0; i < txns.length; i += 500) {
