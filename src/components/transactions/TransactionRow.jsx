@@ -46,7 +46,7 @@ export function TransactionRow({ txn, showYear = true }) {
           </span>
           {fee > 0 && (
             <span className="block truncate text-xs text-muted tabular-nums">
-              {formatMoney(txn.amount)} + {formatMoney(fee)} fee (0.2%)
+              {formatMoney(txn.amount)} + {formatMoney(fee)} fee
             </span>
           )}
         </span>
