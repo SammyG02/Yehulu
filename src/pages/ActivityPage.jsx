@@ -8,9 +8,9 @@ import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
 import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
-import { formatDate, formatSigned } from '../lib/format.js'
+import { formatDate, formatSigned, plain } from '../lib/format.js'
+import { InfoBubble } from '../components/ui/InfoBubble.jsx'
 
-const plain = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 import { feeOf } from '../lib/interest.js'
 import { useSavings } from '../state/hooks.js'
 
@@ -43,14 +43,14 @@ export default function ActivityPage() {
     let outSum = 0
     for (const txn of list) {
       const key = txn.date.slice(0, 7)
-      if (!groups.has(key)) groups.set(key, { key, items: [], net: 0, in: 0, out: 0 })
+      if (!groups.has(key)) groups.set(key, { key, items: [], net: 0, in: 0, out: 0, fees: 0 })
       const group = groups.get(key)
       group.items.push(txn)
       // Money out includes each withdrawal's 0.2% fee.
       const out = txn.type === 'deposit' ? 0 : txn.amount + feeOf(txn)
       group.net += txn.type === 'deposit' ? txn.amount : -out
       if (txn.type === 'deposit') group.in += txn.amount
-      else group.out += out
+      else { group.out += out; group.fees += out - txn.amount }
       if (txn.type === 'deposit') inSum += txn.amount
       else outSum += out
     }
@@ -107,16 +107,18 @@ export default function ActivityPage() {
                     <h2 id={`month-${month.key}`} className="text-sm font-bold">
                       {formatDate(`${month.key}-01`, { month: 'long', year: 'numeric' })}
                     </h2>
-                    <span className="text-right tabular-nums">
-                      <span className="block text-xs font-semibold text-muted">
-                        {formatSigned(Math.abs(month.net), month.net >= 0 ? 'deposit' : 'withdrawal')}
-                      </span>
-                      {month.in > 0 && month.out > 0 && (
-                        <span className="block text-[11px] text-muted">
-                          In {plain(month.in)} · Out {plain(month.out)}
-                        </span>
-                      )}
-                    </span>
+                    <InfoBubble
+                      label={formatSigned(Math.abs(month.net), month.net >= 0 ? 'deposit' : 'withdrawal')}
+                      tone="muted"
+                      className="text-xs font-semibold"
+                      ariaLabel={`${formatDate(`${month.key}-01`, { month: 'long' })}: in ${plain(month.in)}, out ${plain(month.out)}`}
+                      rows={[
+                        ['Money in', plain(month.in)],
+                        [month.fees > 0 ? `Money out (incl. ${plain(month.fees)} fees)` : 'Money out', month.out ? `−${plain(month.out)}` : plain(0)],
+                        ['This month', `${month.net >= 0 ? '+' : '−'}${plain(Math.abs(month.net))}`, { tone: month.net >= 0 ? 'brand' : 'neg' }],
+                      ]}
+                      width="w-64"
+                    />
                   </div>
                   <Card as="div" className="overflow-hidden">
                     <ul className="divide-y divide-line">

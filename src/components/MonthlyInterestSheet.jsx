@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { formatDate, formatMoney } from '../lib/format.js'
+import { formatDate, formatMoney, plain } from '../lib/format.js'
 import { interestByMonth, periodOn } from '../lib/interest.js'
 import { ratesOf } from '../lib/storage.js'
 import { useSavings } from '../state/hooks.js'
+import { InfoBubble } from './ui/InfoBubble.jsx'
 import { Sheet } from './ui/Sheet.jsx'
 
-const plain = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const monthName = (month) => formatDate(`${month}-01`, { month: 'long', year: 'numeric' })
 
 function Summary({ label, value, note }) {
@@ -76,55 +76,19 @@ function MonthList({ months, whose, onPick }) {
  *   different rates are added up (then only interest and charge are shown).
  */
 function InterestAmount({ day, rate }) {
-  // Placed on top of the page, like the withdrawal bubble.
-  const [at, setAt] = useState(null)
-  const open = at !== null
-  const box = useRef(null)
-  const show = () => {
-    const r = box.current?.getBoundingClientRect()
-    if (r) setAt({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
-  }
-  const hide = () => setAt(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e) => { if (!box.current?.contains(e.target)) hide() }
-    const esc = (e) => { if (e.key === 'Escape') hide() }
-    document.addEventListener('pointerdown', away)
-    document.addEventListener('keydown', esc)
-    window.addEventListener('scroll', hide, true)
-    return () => {
-      document.removeEventListener('pointerdown', away)
-      document.removeEventListener('keydown', esc)
-      window.removeEventListener('scroll', hide, true)
-    }
-  }, [open])
-  const gross = day.grossInterest ?? day.interest
-  const charge = day.serviceCharge ?? 0
   const pct = rate == null ? null : Math.round(rate * 10000) / 100
-
   return (
-    <span ref={box} onMouseEnter={show} onMouseLeave={hide}>
-      <button
-        type="button"
-        onClick={() => (open ? hide() : show())}
-        aria-expanded={open}
-        aria-label={`How +${formatMoney(day.interest)} was worked out`}
-        className="rounded-md text-sm font-bold tabular-nums text-brand-ink underline decoration-dotted decoration-brand/50 underline-offset-4 transition hover:decoration-brand"
-      >
-        +{formatMoney(day.interest)}
-      </button>
-      {open && (
-        <span role="tooltip" style={{ top: at.top, right: at.right }} className="fixed z-[60] block w-56 rounded-xl border border-line bg-surface p-3 text-left text-xs shadow-float">
-          <span className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
-            <span className="text-muted">Balance that day</span><span>{plain(day.available)}</span>
-            <span className="text-muted">{pct != null ? `Interest (${pct}% ÷ 365)` : 'Interest'}</span><span>{plain(gross)}</span>
-            <span className="text-muted">Charge (10%)</span><span>{plain(charge)}</span>
-            <span className="border-t border-line pt-1 font-semibold">Added overnight</span>
-            <span className="border-t border-line pt-1 font-bold text-brand-ink">{plain(day.interest)}</span>
-          </span>
-        </span>
-      )}
-    </span>
+    <InfoBubble
+      label={`+${formatMoney(day.interest)}`}
+      className="text-sm font-bold"
+      ariaLabel={`How +${formatMoney(day.interest)} was worked out`}
+      rows={[
+        ['Balance that day', plain(day.available)],
+        [pct != null ? `Interest (${pct}% ÷ 365)` : 'Interest', plain(day.grossInterest ?? day.interest)],
+        ['Charge (10%)', plain(day.serviceCharge ?? 0)],
+        ['Added overnight', plain(day.interest)],
+      ]}
+    />
   )
 }
 

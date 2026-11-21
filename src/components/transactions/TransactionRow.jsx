@@ -1,64 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
 import { ArrowDownLeft, ArrowUpRight, ChevronRight } from 'lucide-react'
-import { formatDate, formatMoney, formatSigned } from '../../lib/format.js'
+import { formatDate, formatMoney, formatSigned, plain } from '../../lib/format.js'
 import { feeOf } from '../../lib/interest.js'
 import { useSavings } from '../../state/hooks.js'
-
-const plain = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-/**
- * A withdrawal's amount: what really left the account (amount + 0.2% fee),
- * the figure on the Yehulu statement and SMS. Tap it (or hover on a computer)
- * for a small bubble with what it's made of.
- */
-function WithdrawalAmount({ amount, fee, shown }) {
-  // Placed on top of the page (lists sit in cards that clip their edges).
-  const [at, setAt] = useState(null)
-  const open = at !== null
-  const box = useRef(null)
-  const show = () => {
-    const r = box.current?.getBoundingClientRect()
-    if (r) setAt({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
-  }
-  const hide = () => setAt(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e) => { if (!box.current?.contains(e.target)) hide() }
-    const esc = (e) => { if (e.key === 'Escape') hide() }
-    document.addEventListener('pointerdown', away)
-    document.addEventListener('keydown', esc)
-    window.addEventListener('scroll', hide, true)
-    return () => {
-      document.removeEventListener('pointerdown', away)
-      document.removeEventListener('keydown', esc)
-      window.removeEventListener('scroll', hide, true)
-    }
-  }, [open])
-
-  return (
-    <span ref={box} onMouseEnter={show} onMouseLeave={hide}>
-      <button
-        type="button"
-        onClick={() => (open ? hide() : show())}
-        aria-expanded={open}
-        aria-label={`${shown}: ${formatMoney(amount)} plus ${formatMoney(fee)} fee`}
-        className="whitespace-nowrap rounded-md text-sm font-bold tabular-nums text-neg underline decoration-dotted decoration-neg/40 underline-offset-4 transition hover:decoration-neg"
-      >
-        {shown}
-      </button>
-      {open && (
-        <span role="tooltip" style={{ top: at.top, right: at.right }} className="fixed z-50 block w-52 rounded-xl border border-line bg-surface p-3 text-left text-xs shadow-float">
-          <span className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
-            <span className="text-muted">Taken out</span><span>{plain(amount)}</span>
-            <span className="text-muted">Fee (0.2%)</span><span>{plain(fee)}</span>
-            <span className="border-t border-line pt-1 font-semibold">Left your account</span>
-            <span className="border-t border-line pt-1 font-bold text-neg">{plain(amount + fee)}</span>
-          </span>
-        </span>
-      )}
-    </span>
-  )
-}
+import { InfoBubble } from '../ui/InfoBubble.jsx'
 
 /** One transaction. Tapping it opens the edit sheet (if you may edit it). */
 export function TransactionRow({ txn, showYear = true }) {
@@ -98,7 +42,17 @@ export function TransactionRow({ txn, showYear = true }) {
         </span>
       </Main>
       {fee > 0
-        ? <WithdrawalAmount amount={txn.amount} fee={fee} shown={shown} />
+        ? (
+          // What left the account; tap for what it's made of.
+          <InfoBubble
+            label={shown}
+            tone="neg"
+            className="text-sm font-bold"
+            width="w-52"
+            ariaLabel={`${shown}: ${formatMoney(txn.amount)} plus ${formatMoney(fee)} fee`}
+            rows={[['Taken out', plain(txn.amount)], ['Fee (0.2%)', plain(fee)], ['Left your account', plain(txn.amount + fee)]]}
+          />
+        )
         : (
           <span className={`whitespace-nowrap text-sm font-bold tabular-nums ${isDeposit ? 'text-brand-ink' : 'text-neg'}`}>
             {shown}

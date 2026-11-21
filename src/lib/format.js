@@ -57,3 +57,6 @@ export const groupAmountInput = (raw) => {
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return decimals === undefined ? grouped : `${grouped}.${decimals}`
 }
+
+/** An amount without "Br" (for bubbles and tables): 2,004.00 */
+export const plain = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
