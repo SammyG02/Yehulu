@@ -8,7 +8,9 @@ import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
 import { Segmented } from '../components/ui/Segmented.jsx'
 import { usePageTitle } from '../hooks/usePageTitle.js'
-import { formatDate, formatMoney, formatSigned } from '../lib/format.js'
+import { formatDate, formatSigned } from '../lib/format.js'
+
+const plain = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 import { feeOf } from '../lib/interest.js'
 import { useSavings } from '../state/hooks.js'
 
@@ -111,7 +113,7 @@ export default function ActivityPage() {
                       </span>
                       {month.in > 0 && month.out > 0 && (
                         <span className="block text-[11px] text-muted">
-                          In {formatMoney(month.in)} · Out {formatMoney(month.out)}
+                          In {plain(month.in)} · Out {plain(month.out)}
                         </span>
                       )}
                     </span>
