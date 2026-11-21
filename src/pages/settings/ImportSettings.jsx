@@ -152,6 +152,17 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <p className="py-2 text-xs text-muted">Interest and charges aren't copied: the app works them out, the same way Yehulu does.</p>
       </Card>
 
+      {result.fixes.length > 0 && (
+        <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
+          <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <span>
+            {result.fixes.length} line{result.fixes.length === 1 ? ' was' : 's were'} corrected using the statement's own balance:
+            <span className="block text-xs">
+              {result.fixes.slice(0, 5).map(f => `${formatDate(f.date)}: ${f.what}`).join(' · ')}{result.fixes.length > 5 ? ' …' : ''}
+            </span>
+          </span>
+        </p>
+      )}
       {missing.length > 0 && (
         <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
           <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />

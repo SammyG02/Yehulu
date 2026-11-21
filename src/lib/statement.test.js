@@ -280,3 +280,87 @@ test('Q: statements in random order -> the same result as in order', () => {
     assert.equal(standIns(acc), 0)
   }
 })
+
+// ---- financial accuracy ------------------------------------------------------
+
+/** One page with "Balance at Period Start/End" lines and hand-written rows. */
+const handPage = ({ opening, closing, rows, currency = 'ETB', amount = (c) => money(c) }) => {
+  const items = header(664)
+  items.push(text('Currency :', 38, 681), text(currency, 170, 681))
+  items.push(text('Balance at Period S', COL.ref, 650), text('tart', COL.ref, 642), right(amount(opening), 542, 650))
+  let y = 625
+  for (const r of rows) {
+    items.push(text(DAY(r.book), COL.book, y), text(r.ref ?? 'FT0001', COL.ref, y), text(r.type, COL.desc, y), text(DAY(r.book), COL.value, y))
+    if (r.debit != null) items.push(right(amount(r.debit), 392, y))
+    if (r.credit != null) items.push(text(amount(r.credit), COL.credit, y))
+    items.push(right(amount(r.balance), 542, y))
+    y -= 25
+  }
+  items.push(text('Balance at Period E', COL.ref, y), text('nd', COL.ref, y - 8), right(amount(closing), 542, y))
+  return [items]
+}
+
+test('Q: totals that do not add up -> refused (closing balance, opening balance)', () => {
+  const rows = [{ book: '2026-03-01', type: 'Transfer Credit', credit: 100000, balance: 600000 }]
+  assert.doesNotThrow(() => parseStatementPages(handPage({ opening: 500000, closing: 600000, rows })))
+  assert.throws(() => parseStatementPages(handPage({ opening: 500000, closing: 650000, rows })), /closing balance .* doesn't match/)
+  assert.throws(() => parseStatementPages(handPage({ opening: 400000, closing: 600000, rows })), /opening balance .* doesn't match/)
+  // A line in the middle that doesn't move the balance by its amount.
+  const bad = [...rows, { book: '2026-03-02', type: 'Cash Withdrawal', debit: 10000, balance: 580000 }]
+  assert.throws(() => parseStatementPages(handPage({ opening: 500000, closing: 580000, rows: bad })), /doesn't match the change in balance/)
+})
+
+test('Q: a debit that the balance shows is a credit -> follows the balance, and says so', () => {
+  const rows = [{ book: '2026-03-01', type: 'Transfer Credit', debit: 100000, balance: 600000 }]
+  const s = parseStatementPages(handPage({ opening: 500000, closing: 600000, rows }))
+  assert.equal(s.rows[0].amount, 100000)
+  assert.match(s.fixes[0].what, /swapped/)
+})
+
+test('Q: a line with a missing amount -> worked out from the balance, and says so', () => {
+  const rows = [
+    { book: '2026-03-01', type: 'Transfer Credit', credit: 100000, balance: 600000 },
+    { book: '2026-03-02', type: 'Cash Withdrawal', balance: 549900 },
+  ]
+  const s = parseStatementPages(handPage({ opening: 500000, closing: 549900, rows }))
+  assert.equal(s.rows[1].amount, -50100)
+  assert.match(s.fixes[0].what, /missing amount/)
+})
+
+test('Q: negative balances are read in every common style', () => {
+  for (const style of [(c) => `-${money(c)}`, (c) => `(${money(c)})`, (c) => `${money(c)}-`, (c) => `${money(c)} DR`]) {
+    const amount = (c) => (c < 0 ? style(-c) : money(c))
+    const rows = [{ book: '2026-03-01', type: 'Cash Withdrawal', debit: 150000, balance: -50000 }]
+    const s = parseStatementPages(handPage({ opening: 100000, closing: -50000, rows, amount }))
+    assert.equal(s.closing, -50000, style(1))
+  }
+})
+
+test('Q: 1.000,50 and 1 000.50 style numbers are read the same as 1,000.50', () => {
+  for (const fmt of [(c) => money(c).replace(/,/g, '#').replace('.', ',').replace(/#/g, '.'), (c) => money(c).replace(/,/g, ' ')]) {
+    const rows = [{ book: '2026-03-01', type: 'Transfer Credit', credit: 123456789, balance: 123556789 }]
+    const s = parseStatementPages(handPage({ opening: 100000, closing: 123556789, rows, amount: fmt }))
+    assert.equal(s.rows[0].amount, 123456789, fmt(123456789))
+  }
+})
+
+test('Q: another currency -> refused; mixing currencies -> refused', () => {
+  const rows = [{ book: '2026-03-01', type: 'Transfer Credit', credit: 100000, balance: 600000 }]
+  assert.throws(() => parseStatementPages(handPage({ opening: 500000, closing: 600000, rows, currency: 'USD' })), /USD.*Birr/)
+  const etb = parseStatementPages(handPage({ opening: 500000, closing: 600000, rows }))
+  assert.throws(() => buildImport([etb, { ...etb, currency: 'EUR' }]), /different currencies/)
+})
+
+test('Q: a reversed withdrawal (money back, fee included) nets to exactly nothing', () => {
+  const moves = {
+    '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }],
+    '2026-03-03': [{ type: 'Cash Withdrawal', amount: -1002000 }],
+    '2026-03-05': [{ type: 'Reversal', amount: 1002000 }],
+  }
+  const rows = statementRows({ from: '2026-03-01', days: 10, rate: 40, moves })
+  const imp = buildImport([parseStatementPages([page(rows)])])
+  const rates = imp.rates.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: 0.1 }))
+  const cmp = compareWithStatement(simulateLedger({ transactions: imp.transactions, rates, fromDate: imp.to, endDate: imp.to }), imp.expected)
+  assert.equal(cmp.matched, cmp.days, 'every day still matches')
+  assert.deepEqual(imp.transactions.map(t => [t.type, t.amount]), [['deposit', 100000], ['withdrawal', 10000], ['deposit', 10020]])
+})

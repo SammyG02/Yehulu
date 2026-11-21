@@ -18,14 +18,25 @@ import { periodOn, simulateLedger, withdrawalFee } from './interest.js'
 
 const MONTHS = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
 const DATE = /^(\d\d) ([A-Z]{3}) (\d\d)$/
-const AMOUNT = /^-?[\d,]+\.\d\d$/
+// Amounts: 1,000.50 (Yehulu's style) and also 1.000,50, 1 000.50 or 1000.50,
+// with a minus written as -1,000.50, 1,000.50-, (1,000.50) or 1,000.50 DR.
+const AMOUNT = /^(?:-\s?|\()?\d{1,3}(?:[.,\s\u00a0']?\d{3})*[.,]\d\d(?:\s?-|\)|\s?(?:DR|Dr|CR|Cr))?$/
 
 /** "03 JAN 26" -> "2026-01-03" */
 const toDateKey = (text) => {
   const m = DATE.exec(text.trim())
   return m && MONTHS[m[2]] ? `20${m[3]}-${MONTHS[m[2]]}-${m[1]}` : null
 }
-const toCents = (text) => Math.round(Number(text.replace(/,/g, '')) * 100)
+/** "1,000.50" / "1.000,50" / "(1,000.50)" / "1,000.50-" / "1,000.50 DR" -> santim (negative when marked so). */
+const toCents = (text) => {
+  const t = text.trim()
+  const negative = /^-|^\(|-$|\)$|DR$/i.test(t)
+  // The last . or , before two digits is the decimal point; the rest group thousands.
+  const digits = t.replace(/\s?(DR|CR)$/i, '').replace(/[^\d.,]/g, '')
+  const whole = digits.slice(0, -3).replace(/[.,]/g, '')
+  const cents = Number(whole + digits.slice(-2))
+  return negative ? -cents : cents
+}
 const round2 = (x) => Math.round(x * 100) / 100
 
 const INTEREST = 'Interest - Capitalise'
@@ -44,6 +55,9 @@ export function parseStatementPages(pages) {
   let accountNo = null
   let holder = null
   let printed = null
+  let currency = null
+  let printedOpening = null
+  let printedClosing = null
   const rows = []
 
   for (const items of pages) {
@@ -72,6 +86,14 @@ export function parseStatementPages(pages) {
     accountNo ??= labelled('Account :')[0]?.str.trim() ?? null
     holder ??= labelled('Customer :').map(t => t.str.trim()).filter(s => !/^\d+$/.test(s)).join(' ') || null
     printed ??= texts.find(t => /^\d{1,2} [A-Z][a-z]+ \d{4}$/.test(t.str.trim()))?.str.trim() ?? null
+    currency ??= labelled('Currency :')[0]?.str.trim() ?? null
+    // "Balance at Period Start / End" lines, with their amount on the same row.
+    for (const label of texts.filter(t => /^Balance at Period/i.test(t.str.trim()))) {
+      const value = texts.find(t => Math.abs(t.y - label.y) < 2 && t.x > columns.debit && AMOUNT.test(t.str.trim()))
+      if (!value) continue
+      if (/Period S/i.test(label.str)) printedOpening ??= toCents(value.str)
+      else if (/Period E/i.test(label.str)) printedClosing = toCents(value.str)
+    }
 
     // Rows start with a book date in the first column; wrapped text below it
     // (a long reference or narrative) belongs to the same row. Only the first
@@ -105,26 +127,53 @@ export function parseStatementPages(pages) {
   }
 
   if (!columns) throw new Error("This doesn't look like a Yehulu account statement.")
-  const clean = rows
-    .filter(r => r.balance != null && (r.debit != null || r.credit != null))
-    .map(r => ({
+  if (currency && currency.toUpperCase() !== 'ETB') {
+    throw new Error(`This statement is in ${currency}. Yehulu tracks Birr (ETB) only.`)
+  }
+
+  // The balance column is the bank's own running total, so it's the truth:
+  // every line must move it by exactly its amount. Where the amount is
+  // missing, it comes from the balance; where a debit/credit is the wrong way
+  // round, the balance says which it is. Anything else is refused.
+  const withBalance = rows.filter(r => r.balance != null)
+  if (withBalance.length === 0) throw new Error('No transactions found in this statement.')
+  const clean = []
+  const fixes = []
+  let prev = printedOpening
+  for (const r of withBalance) {
+    const written = r.credit != null ? r.credit : r.debit != null ? -Math.abs(r.debit) : null
+    let amount = written
+    if (prev != null) {
+      const moved = r.balance - prev
+      if (written == null) { amount = moved; fixes.push({ date: r.bookDate, what: 'missing amount, taken from the balance' }) }
+      else if (written !== moved && -written === moved) { amount = moved; fixes.push({ date: r.bookDate, what: 'debit/credit swapped to match the balance' }) }
+      else if (written !== moved && clean.length === 0 && prev === printedOpening) {
+        throw new Error(`The statement's opening balance (${(printedOpening / 100).toFixed(2)}) doesn't match its first line. The statement may be damaged.`)
+      } else if (written !== moved) {
+        throw new Error(`On ${r.bookDate} the amount (${(written / 100).toFixed(2)}) doesn't match the change in balance (${(moved / 100).toFixed(2)}). The statement may be damaged.`)
+      }
+    } else if (written == null) {
+      throw new Error(`The first line (${r.bookDate}) has no amount and there's no opening balance to work it out from.`)
+    }
+    if (amount === 0) { prev = r.balance; continue }
+    clean.push({
       bookDate: r.bookDate,
       ref: r.ref,
       type: r.desc[0] ?? '',
       narrative: r.desc.slice(1).join(' '),
       valueDate: r.valueDate ?? r.bookDate,
-      amount: r.credit != null ? r.credit : -r.debit,
+      amount,
       balance: r.balance,
-    }))
-  if (clean.length === 0) throw new Error('No transactions found in this statement.')
-  // The balance column chains row to row; the first row tells the opening.
-  const opening = clean[0].balance - clean[0].amount
-  for (let i = 1; i < clean.length; i++) {
-    if (clean[i - 1].balance + clean[i].amount !== clean[i].balance) {
-      throw new Error(`Couldn't read the statement cleanly near ${clean[i].bookDate}.`)
-    }
+    })
+    prev = r.balance
   }
-  return { accountNo, holder, printed, opening, closing: clean.at(-1).balance, rows: clean }
+  if (clean.length === 0) throw new Error('No transactions found in this statement.')
+  const opening = printedOpening ?? clean[0].balance - clean[0].amount
+  const closing = clean.at(-1).balance
+  if (printedClosing != null && printedClosing !== closing) {
+    throw new Error(`The statement's closing balance (${(printedClosing / 100).toFixed(2)}) doesn't match its transactions (${(closing / 100).toFixed(2)}). Part of it may be missing.`)
+  }
+  return { accountNo, holder, printed, currency, opening, closing, rows: clean, fixes }
 }
 
 /** Reads a statement PDF file in the browser (or Node, for tests). */
@@ -201,6 +250,8 @@ function findRates(lines) {
  */
 export function buildImport(statements) {
   if (statements.length === 0) throw new Error('No statements.')
+  const currencies = new Set(statements.map(s => s.currency?.toUpperCase()).filter(Boolean))
+  if (currencies.size > 1) throw new Error('These statements are in different currencies.')
   const accounts = new Set(statements.map(s => s.accountNo).filter(Boolean))
   if (accounts.size > 1) throw new Error('These statements are for different Yehulu accounts. Import one account at a time.')
   const sorted = [...statements].sort((a, b) => a.rows[0].bookDate.localeCompare(b.rows[0].bookDate))
@@ -323,6 +374,7 @@ export function buildImport(statements) {
     expected,
     anchors,
     gaps,
+    fixes: sorted.flatMap(s => s.fixes ?? []),
   }
 }
 
