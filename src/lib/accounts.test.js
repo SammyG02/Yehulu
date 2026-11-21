@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  emptyAccount, emptyState, exportState, FIRST_ACCOUNT_ID, MAX_ACCOUNTS, migrate, parseBackup, YEHULU_RATES,
+  emptyAccount, emptyState, exportState, FIRST_ACCOUNT_ID, MAX_ACCOUNTS, migrate, parseBackup,
 } from './storage.js'
 
 const TODAY = '2026-11-19'
@@ -38,7 +38,7 @@ test('each account keeps its own name, rates, goal and transactions', () => {
   }
   const state = migrate(raw, TODAY)
   assert.equal(state.activeId, 'b')
-  assert.deepEqual(state.accounts.map(a => [a.id, a.name, a.rates.at(-1).annualRate, a.goal.target, a.transactions.length]),
+  assert.deepEqual(state.accounts.map(a => [a.id, a.name, a.rates[0].annualRate, a.goal.target, a.transactions.length]),
     [['a', 'Regular', 40, null, 1], ['b', 'Fixed', 50, 9000, 0]])
 })
 
@@ -78,12 +78,4 @@ test('a new account starts empty with the chosen rate', () => {
   assert.deepEqual(a, {
     id: 'n', name: 'Holiday', rates: [{ from: TODAY, annualRate: 30, serviceCharge: 10 }], goal: { target: null, monthly: 0 }, transactions: [],
   })
-})
-
-test('a new 40% account follows Yehulu\'s real rate history; other rates start today', () => {
-  const standard = emptyAccount(TODAY)
-  assert.deepEqual(standard.rates.map(r => [r.from, r.annualRate]),
-    [['2025-08-01', 50], ['2025-11-01', 40], ['2026-01-27', 35], ['2026-09-18', 40]])
-  assert.deepEqual(emptyAccount(TODAY, { annualRate: 12 }).rates, [{ from: TODAY, annualRate: 12, serviceCharge: 10 }])
-  assert.equal(standard.rates[0] === YEHULU_RATES[0], false, 'a copy, not the shared list')
 })

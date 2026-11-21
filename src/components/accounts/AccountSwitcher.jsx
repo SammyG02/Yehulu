@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { Check, ChevronDown, Plus, Settings2, Users, Wallet } from 'lucide-react'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
-import { DEFAULT_RATE, MAX_ACCOUNTS } from '../../lib/storage.js'
+import { MAX_ACCOUNTS } from '../../lib/storage.js'
 import { useAccountBalances, useAccountTotals, useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { AffixInput, Field, inputClass } from '../ui/Field.jsx'
@@ -16,13 +16,14 @@ const isPercent = (v) => String(v).trim() !== '' && Number(v) >= 0 && Number(v) 
 export function NewAccountForm({ onCreated, onCancel }) {
   const { accounts, actions } = useSavings()
   const [name, setName] = useState('')
-  const [annualRate, setAnnualRate] = useState(String(DEFAULT_RATE.annualRate))
+  const [annualRate, setAnnualRate] = useState('')
   const [tried, setTried] = useState(false)
 
   const trimmed = name.trim().slice(0, 40)
   const nameError = !trimmed ? 'Give it a name'
     : accounts.some(a => a.name.toLowerCase() === trimmed.toLowerCase()) ? 'You already have an account with this name' : null
-  const rateError = isPercent(annualRate) ? null : '0 to 100'
+  // No default: each person's Yehulu rate is different, so they type their own.
+  const rateError = String(annualRate).trim() === '' ? 'Enter your rate' : isPercent(annualRate) ? null : '0 to 100'
   const full = accounts.length >= MAX_ACCOUNTS
 
   const submit = (e) => {
@@ -50,8 +51,8 @@ export function NewAccountForm({ onCreated, onCancel }) {
             className={inputClass}
           />
         </Field>
-        <Field id="new-account-rate" label="Rate" hint="Per year" error={tried ? rateError : null}>
-          <AffixInput id="new-account-rate" suffix="%" min="0" max="100" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} />
+        <Field id="new-account-rate" label="Rate" hint="Per year, from Yehulu" error={tried ? rateError : null}>
+          <AffixInput id="new-account-rate" suffix="%" placeholder="e.g. 7" min="0" max="100" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} />
         </Field>
       </div>
       <div className="flex justify-end gap-2">

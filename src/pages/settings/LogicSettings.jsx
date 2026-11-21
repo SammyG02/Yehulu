@@ -7,7 +7,7 @@ import { AffixInput, Field, inputClass } from '../../components/ui/Field.jsx'
 import { addDays, isDateKey } from '../../lib/dates.js'
 import { formatDate, formatPercent } from '../../lib/format.js'
 import { dailyRate, effectiveAnnualRate, periodOn } from '../../lib/interest.js'
-import { SERVICE_CHARGE, YEHULU_RATES, isYehuluHistory, toFraction } from '../../lib/storage.js'
+import { SERVICE_CHARGE, toFraction } from '../../lib/storage.js'
 import { useConfirm, useSavings } from '../../state/hooks.js'
 
 const isPercent = (v) => String(v).trim() !== '' && Number(v) >= 0 && Number(v) <= 100
@@ -109,15 +109,6 @@ function RateHistory({ editing, onEdit }) {
     if (await actions.changeRates(periods.filter(p => p !== period), 'Rate deleted') && editing === period) onEdit(null)
   }
 
-  const applyYehulu = async () => {
-    if (!(await confirm({
-      title: "Use Yehulu's rate history?",
-      message: 'This replaces the rates of this account with the four real Yehulu rates. Interest is recalculated for every day, including interest already earned.',
-      confirmLabel: 'Use these rates',
-    }))) return
-    if (await actions.changeRates(YEHULU_RATES.map(r => ({ ...r })), "Yehulu's rates added")) onEdit(null)
-  }
-
   return (
     <Card className="overflow-hidden">
       <CardHeader title="Rate history" subtitle="Each rate applies until the next one starts." className="pb-3" />
@@ -160,14 +151,6 @@ function RateHistory({ editing, onEdit }) {
           )
         })}
       </ul>
-      {isOwner && !isYehuluHistory(periods) && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
-          <p className="min-w-0 flex-1 basis-48 text-xs text-muted">
-            Yehulu's real rates: 50% until Oct 2025, 40% from 1 Nov 2025, 35% from 27 Jan 2026, 40% from 18 Sep 2026.
-          </p>
-          <Button variant="secondary" size="sm" onClick={applyYehulu}>Use Yehulu's rates</Button>
-        </div>
-      )}
     </Card>
   )
 }

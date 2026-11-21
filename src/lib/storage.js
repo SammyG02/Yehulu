@@ -9,22 +9,6 @@ export const DEFAULT_ACCOUNT_NAME = 'My savings'
 export const SERVICE_CHARGE = 10
 export const DEFAULT_RATE = { annualRate: 40, serviceCharge: SERVICE_CHARGE }
 
-/**
- * Yehulu's real rate changes, read from account statements: the first day each
- * rate applied to. The first one also covers anything earlier.
- */
-export const YEHULU_RATES = [
-  { from: '2025-08-01', annualRate: 50, serviceCharge: SERVICE_CHARGE },
-  { from: '2025-11-01', annualRate: 40, serviceCharge: SERVICE_CHARGE },
-  { from: '2026-01-27', annualRate: 35, serviceCharge: SERVICE_CHARGE },
-  { from: '2026-09-18', annualRate: 40, serviceCharge: SERVICE_CHARGE },
-]
-
-/** True when an account's rates are exactly Yehulu's history. */
-export const isYehuluHistory = (rates) =>
-  rates.length === YEHULU_RATES.length
-  && rates.every((r, i) => r.from === YEHULU_RATES[i].from && r.annualRate === YEHULU_RATES[i].annualRate)
-
 export const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
@@ -39,11 +23,7 @@ export const MAX_ACCOUNTS = 20
 export const emptyAccount = (today = toDateKey(new Date()), { id = newId(), name = DEFAULT_ACCOUNT_NAME, annualRate = DEFAULT_RATE.annualRate } = {}) => ({
   id,
   name,
-  // A standard 40% account follows Yehulu's real rate history; any other
-  // rate is a different product, starting today.
-  rates: annualRate === DEFAULT_RATE.annualRate
-    ? YEHULU_RATES.map(r => ({ ...r }))
-    : [{ from: today, annualRate, serviceCharge: SERVICE_CHARGE }],
+  rates: [{ from: today, annualRate, serviceCharge: SERVICE_CHARGE }],
   goal: { ...EMPTY_GOAL },
   transactions: [],
 })

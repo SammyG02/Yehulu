@@ -170,7 +170,7 @@ function SaveProgress() {
 }
 
 function Welcome() {
-  const { accounts, account, currentRate, actions, shared } = useSavings()
+  const { accounts, account, currentRate, actions, shared, isOwner } = useSavings()
   const { enabled, user } = useAuth()
   // A second (or later) account, or a shared one, is empty, not a first visit.
   const extra = accounts.length > 1 || shared
@@ -197,6 +197,10 @@ function Welcome() {
             <p className="mt-1 text-4xl font-extrabold tracking-tight tabular-nums">{formatMoney(0)}</p>
             <p className="mt-1 text-sm text-[#04160c]/75">
               {currentRate.annualRate}% a year, added daily
+              {/* Everyone's Yehulu rate is different: make it easy to set yours first. */}
+              {isOwner && (
+                <> · <Link to="/settings/logic" className="font-semibold text-[#04160c] underline underline-offset-2">Change</Link></>
+              )}
             </p>
             <button
               type="button"
