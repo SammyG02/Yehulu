@@ -490,3 +490,61 @@ test("Q: another Yehulu account's statement -> its account number is recognised"
   const acc = importInto(empty, [jan])
   assert.deepEqual([...statementAccounts(acc.transactions)], ['3000123456'])
 })
+
+// ---- adversarial: page continuation ---------------------------------------------
+
+test('page continuation never merges a dateless row into the one before it silently', () => {
+  const rows = statementRows({
+    from: '2026-03-01', days: 4, rate: 40,
+    moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }], '2026-03-03': [{ type: 'Transfer Credit', amount: 3000000 }] },
+  })
+  const split = rows.findIndex(r => r.amount === 3000000)
+  const firstPage = page(rows.slice(0, split))
+  // Page 2 starts with the 30,000 deposit, but its date didn't come through.
+  const secondPage = page(rows.slice(split), { withHeader: false }).filter(t => !(t.y === 740 && t.x === COL.book))
+  assert.throws(() => parseStatementPages([firstPage, secondPage]), /doesn't match the change in balance|closing balance/)
+})
+
+test('the closing-balance line at the top of the last page is not taken into the row before it', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 2, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  const last = rows.at(-1).balance
+  const endPage = [text('Balance at Period E', COL.ref, 740), text('nd', COL.ref, 732), right(money(last), 542, 740)]
+  const s = parseStatementPages([page(rows), endPage])
+  assert.equal(s.rows.length, rows.length)
+  assert.equal(s.closingConfirmed, true)
+  assert.equal(s.rows.at(-1).balance, last)
+  assert.throws(() => parseStatementPages([page(rows), [text('Balance at Period E', COL.ref, 740), right(money(last + 100), 542, 740)]]), /closing balance/)
+})
+
+// ---- adversarial: second-level audit regressions -----------------------------
+
+test('another Yehulu account is refused at the import core (no balance corruption)', async () => {
+  const { AccountMismatch } = await import('./statement.js')
+  const acc = importInto(empty, [jan])
+  const other = { ...feb, accountNo: '3000999999' }
+  assert.throws(() => importInto(acc, [other]), (err) => err instanceof AccountMismatch && /••9999/.test(err.message))
+  // Same account: fine.
+  assert.doesNotThrow(() => importInto(acc, [feb]))
+})
+
+test('a statement without printed opening/closing balances is flagged as unverified', () => {
+  const rows = statementRows({ from: '2026-03-01', days: 2, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  const s = parseStatementPages([page(rows)])
+  assert.equal(s.openingConfirmed, false)
+  assert.equal(buildImport([s]).unconfirmed, 1)
+  const ok = parseStatementPages(handPage({ opening: 0, closing: 100000, rows: [{ book: '2026-03-01', type: 'Transfer Credit', credit: 100000, balance: 100000 }] }))
+  assert.equal(buildImport([ok]).unconfirmed, 0)
+})
+
+test('atomic cloud import: sends one request; falls back only when the database lacks it', async () => {
+  const { cloudApi } = await import('./cloud.js')
+  const calls = []
+  const client = (error) => ({ rpc: async (name, args) => { calls.push([name, args]); return { error } } })
+  const txn = { id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', noFee: true, ref: 'y:1:abc' }
+  assert.equal(await cloudApi(client(null)).importStatement('acc', 'me', [txn], ['old'], null, [{ from: '2026-01-01', annualRate: 2 }]), true)
+  assert.deepEqual(calls[0][1].new_rows, [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', no_fee: true, ref: 'y:1:abc' }])
+  assert.deepEqual(calls[0][1].remove_ids, ['old'])
+  assert.deepEqual(calls[0][1].member_rates, [{ from: '2026-01-01', annual_rate: 2 }])
+  assert.equal(await cloudApi(client({ message: 'Could not find the function public.import_statement', code: 'PGRST202' })).importStatement('acc', 'me', [], [], null, null), false)
+  await assert.rejects(cloudApi(client({ message: 'permission denied' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
+})

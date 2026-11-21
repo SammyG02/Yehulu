@@ -172,6 +172,27 @@ export const cloudApi = (client) => ({
   async addTransaction(accountId, txn) {
     check(await client.from('transactions').insert(toTxnRow(accountId, txn)))
   },
+  /**
+   * A statement import, saved all at once or not at all (migration 006).
+   * Returns false if the database doesn't have that yet (then the caller
+   * falls back to separate requests).
+   */
+  async importStatement(accountId, memberId, txns, removeIds, accountRates, memberRates) {
+    const { error } = await client.rpc('import_statement', {
+      acc: accountId,
+      member: memberId,
+      new_rows: txns.map(t => ({
+        id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
+        no_fee: t.type === 'withdrawal' && Boolean(t.noFee), ref: t.ref ?? null,
+      })),
+      remove_ids: removeIds,
+      account_rates: accountRates ? accountRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
+      member_rates: memberRates ? memberRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
+    })
+    if (!error) return true
+    if (/import_statement|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
+    throw new Error(error.message)
+  },
   /** Many at once (statement import), in chunks the server accepts. */
   async addTransactions(accountId, txns) {
     for (let i = 0; i < txns.length; i += 500) {

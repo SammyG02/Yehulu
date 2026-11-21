@@ -442,7 +442,13 @@ export function SavingsProvider({ children }) {
       setData(d => ({ ...d, activeId: created.id, accounts: [...d.accounts, shown] }))
       if (cloud) {
         writeCloudActive(created.id)
-        remote(() => api.createAccount(created, userId))
+        remote(async () => {
+          // The account first, then its transactions all at once: a failure
+          // halfway leaves at most an empty account, never a partial history.
+          await api.createAccount({ ...created, transactions: [] }, userId)
+          if (await api.importStatement(created.id, userId, created.transactions, [], null, null)) return
+          await api.addTransactions(created.id, created.transactions)
+        })
       }
       showToast(`${created.transactions.length} transactions imported into ${name}`)
       return { added: created.transactions.length, skipped: 0, accountId: created.id }
@@ -456,7 +462,9 @@ export function SavingsProvider({ children }) {
     // Only the days the statement covers change; the rest of the history stays.
     const ownRates = Boolean(target.cloud && target.members?.length > 1 && who !== target.ownerId)
     const mayRate = ownRates || !target.cloud || target.role === 'owner'
-    const plan = planImport({
+    let plan
+    try {
+      plan = planImport({
       existing: ofMember(target.transactions, who),
       lines: records,
       anchors,
@@ -465,7 +473,10 @@ export function SavingsProvider({ children }) {
       useRates: Boolean(useRates && mayRate),
       period: span,
       newId,
-    })
+      })
+    } catch (err) {
+      return { error: err.message }
+    }
     // A missing statement's stand-in bridge, or a later statement's opening
     // balance once earlier history arrives, is replaced.
     const filled = new Set(plan.remove)
@@ -481,8 +492,12 @@ export function SavingsProvider({ children }) {
     }), into))
     if (target.cloud) {
       remote(async () => {
-        // Add first, then remove stand-ins: if the connection drops halfway,
-        // nothing is missing (importing again finishes the job).
+        // All at once, or nothing (a dropped connection or signing out
+        // halfway leaves no partial import).
+        if (await api.importStatement(target.id, who, fresh, [...filled], accountRates, memberRates)) return
+        // Database without migration 006: separate requests. Add first, then
+        // remove stand-ins, so a failure halfway never leaves a hole and
+        // importing again finishes the job.
         if (fresh.length) await api.addTransactions(target.id, fresh)
         for (const id of filled) await api.deleteTransaction(id)
         if (memberRates) await api.setMemberRates(target.id, who, memberRates)

@@ -77,14 +77,20 @@ function PickFiles({ onRead }) {
       </Button>
       {locked && (
         <form
-          onSubmit={(e) => { e.preventDefault(); if (password) read(locked.files, { ...locked.passwords, [locked.name]: password }) }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!password) return
+            const passwords = { ...locked.passwords, [locked.name]: password }
+            setPassword('') // not kept on screen once used
+            read(locked.files, passwords)
+          }}
           className="space-y-2 rounded-xl bg-sunken p-3"
         >
           <label htmlFor="pdf-password" className="block text-sm font-semibold">
             {locked.wrong ? 'That password is not right. ' : ''}{locked.name} has a password
           </label>
           <div className="flex gap-2">
-            <input id="pdf-password" type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="PDF password" />
+            <input id="pdf-password" type="password" autoComplete="off" data-lpignore="true" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="PDF password" />
             <Button type="submit" disabled={!password}>Open</Button>
           </div>
           <p className="text-xs text-muted">Used only to open the file on this device. It isn't saved.</p>
@@ -117,7 +123,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const [useRates, setUseRates] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [otherAccountOk, setOtherAccountOk] = useState(false)
+  const [unverifiedOk, setUnverifiedOk] = useState(false)
 
   const counts = useMemo(() => ({
     deposits: result.transactions.filter(t => t.type === 'deposit').length,
@@ -136,24 +142,30 @@ function Review({ result, fileCount, onDone, onCancel }) {
     const lines = result.transactions.map(t => ({ ...t, id: `preview-${n++}` }))
     const found = result.rates.map(r => ({ ...r, serviceCharge: 10 }))
     const current = target ? memberRateList(target, who) : found
-    const plan = planImport({
-      existing, lines, anchors: result.anchors, currentRates: current, foundRates: found,
-      useRates: Boolean(target && useRates), period: { from: result.from, to: result.to }, newId: () => `preview-${n++}`,
-    })
+    let plan
+    try {
+      plan = planImport({
+        existing, lines, anchors: result.anchors, currentRates: current, foundRates: found,
+        useRates: Boolean(target && useRates), period: { from: result.from, to: result.to }, newId: () => `preview-${n++}`,
+      })
+    } catch (err) {
+      // e.g. another Yehulu account's statement: nothing to preview, import blocked.
+      return { plan: { add: [], remove: [], rates: null, skipped: 0, matched: [], unmatchedOwn: [], bridges: [] }, check: null, refused: err.message }
+    }
     const gone = new Set(plan.remove)
     const after = [...existing.filter(t => !gone.has(t.id)), ...plan.add]
     const rates = (plan.rates ?? current).map(toFraction)
     const check = compareWithStatement(simulateLedger({ transactions: after, rates, fromDate: result.to, endDate: result.to }), result.expected)
     return { plan, check }
   }, [result, target, who, useRates, existing])
-  const { plan, check } = preview
+  const { plan, check, refused } = preview
   // Statements of another Yehulu account already in the chosen account?
   const others = [...statementAccounts(existing)].filter(no => result.accountNo && no !== result.accountNo)
-  const blocked = others.length > 0 && !otherAccountOk
+  const blocked = Boolean(refused) || others.length > 0 || (result.unconfirmed > 0 && !unverifiedOk)
   const missing = plan.bridges.filter(b => b.note.startsWith('Missing'))
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
-  const endMatches = check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005
+  const endMatches = Boolean(check && check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005)
 
   const doImport = () => {
     setError(null)
@@ -189,18 +201,22 @@ function Review({ result, fileCount, onDone, onCancel }) {
               from ••{result.accountNo.slice(-4)}: a different account. Import it into its own account instead.
             </span>
           </p>
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={otherAccountOk} onChange={(e) => setOtherAccountOk(e.target.checked)} className="h-4 w-4" />
-            They're the same savings; add it anyway
-          </label>
         </div>
       )}
       {result.unconfirmed > 0 && (
-        <p className="flex gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
-          <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-          The closing balance printed at the end of {result.unconfirmed === 1 ? 'a statement' : `${result.unconfirmed} statements`} couldn't
-          be found, so the app can't confirm nothing is cut off at the end.
-        </p>
+        <div className="space-y-2 rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
+          <p className="flex gap-2">
+            <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <span>
+              The opening or closing balance printed on {result.unconfirmed === 1 ? 'a statement' : `${result.unconfirmed} statements`} couldn't
+              be found, so the app can't confirm that nothing is cut off at the start or end.
+            </span>
+          </p>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={unverifiedOk} onChange={(e) => setUnverifiedOk(e.target.checked)} className="h-4 w-4" />
+            I've checked the statement is complete; import it anyway
+          </label>
+        </div>
       )}
       {plan.matched.length > 0 && (
         <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
@@ -278,7 +294,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
         )}
       </Card>
 
-      <Card className="space-y-3 p-4 sm:p-5">
+      {check && <Card className="space-y-3 p-4 sm:p-5">
         <h3 className="text-sm font-bold">Check against the statement</h3>
         <p className={`flex gap-2 text-sm ${endMatches ? 'text-brand-ink' : 'text-accent'}`}>
           {endMatches ? <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />}
@@ -298,7 +314,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
             follows the statement.
           </p>
         )}
-      </Card>
+      </Card>}
 
       <Card className="space-y-3 p-4 sm:p-5">
         <h3 className="text-sm font-bold">Import into</h3>
@@ -359,7 +375,7 @@ export default function ImportSettings() {
           </div>
         </Card>
       ) : found ? (
-        <Review result={found.result} fileCount={found.count} onCancel={() => setFound(null)} onDone={setDone} />
+        <Review result={found.result} fileCount={found.count} onCancel={() => setFound(null)} onDone={(r) => { setFound(null); setDone(r) }} />
       ) : (
         <PickFiles onRead={(result, count) => setFound({ result, count })} />
       )}

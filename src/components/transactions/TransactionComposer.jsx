@@ -214,6 +214,13 @@ function ComposerForm({ composer, onClose }) {
         </label>
       )}
 
+      {editing && original.ref && (
+        <p className="rounded-xl bg-accent-soft px-4 py-3 text-xs text-accent">
+          {/^(gap|opening)-/.test(original.ref)
+            ? "This line keeps your balance in step with your Yehulu statements (it stands in for a missing statement or the balance before it). Importing that statement replaces it."
+            : "This came from a Yehulu statement. Changing or deleting it makes your balance differ from the bank's. Importing the statement again won't undo an edit, but brings back a deleted line."}
+        </p>
+      )}
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm font-medium text-neg">{error}</p>}
 
       <div className="space-y-2">

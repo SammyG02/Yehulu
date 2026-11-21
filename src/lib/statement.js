@@ -204,7 +204,12 @@ export function parseStatementPages(pages) {
     throw new Error(`The statement's closing balance (${(printedClosing / 100).toFixed(2)}) doesn't match its transactions (${(closing / 100).toFixed(2)}). Part of it may be missing.`)
   }
   // Without the printed closing balance, a statement cut off at the end can't be noticed.
-  return { accountNo, holder, printed, currency, opening, closing, rows: clean, fixes, closingConfirmed: printedClosing != null }
+  return {
+    accountNo, holder, printed, currency, opening, closing, rows: clean, fixes,
+    // The printed balances were found and agree: nothing is cut off at either end.
+    openingConfirmed: printedOpening != null,
+    closingConfirmed: printedClosing != null,
+  }
 }
 
 const MAX_BYTES = 20 * 1024 * 1024
@@ -239,11 +244,17 @@ export async function readStatementPdf(data, password = '') {
   }
   if (doc.numPages > MAX_PAGES) { await doc.destroy(); throw new Error(`This PDF has ${doc.numPages} pages; statements up to ${MAX_PAGES} pages can be read.`) }
   const pages = []
-  for (let p = 1; p <= doc.numPages; p++) {
-    const { items } = await (await doc.getPage(p)).getTextContent()
-    pages.push(items.map(it => ({ str: it.str, x: it.transform[4], y: it.transform[5], width: it.width })))
+  try {
+    for (let p = 1; p <= doc.numPages; p++) {
+      const { items } = await (await doc.getPage(p)).getTextContent()
+      pages.push(items.map(it => ({ str: it.str, x: it.transform[4], y: it.transform[5], width: it.width })))
+    }
+  } catch (err) {
+    throw new Error('Part of this PDF is damaged and could not be read.', { cause: err })
+  } finally {
+    // Always close the document (and the password it was opened with).
+    await doc.destroy()
   }
-  await doc.destroy()
   return parseStatementPages(pages)
 }
 
@@ -431,7 +442,7 @@ export function buildImport(statements) {
     anchors,
     gaps,
     fixes: sorted.flatMap(s => s.fixes ?? []),
-    unconfirmed: sorted.filter(s => s.closingConfirmed === false).length,
+    unconfirmed: sorted.filter(s => s.closingConfirmed === false || s.openingConfirmed === false).length,
   }
 }
 
@@ -508,6 +519,14 @@ export function bridgesFor(transactions, anchors, rates) {
  * arrives, and then its bridge goes.
  */
 export function planImport({ existing, lines, anchors, currentRates, foundRates, useRates, period, newId }) {
+  // Never mix two Yehulu accounts in one person's money: the other account's
+  // balances would be forced onto this one's history (its anchors).
+  const incoming = statementAccounts(lines)
+  const already = statementAccounts(existing)
+  const foreign = [...incoming].filter(no => already.size && !already.has(no))
+  if (foreign.length) {
+    throw new AccountMismatch([...already], foreign)
+  }
   const fractions = (list) => list.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: (r.serviceCharge ?? 10) / 100 }))
   const rates = useRates && foundRates.length ? mergeRates(currentRates, foundRates, period.from, period.to) : null
   const before = fractions(currentRates)
@@ -577,6 +596,16 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
     matched,
     unmatchedOwn,
     bridges,
+  }
+}
+
+/** Statements of one Yehulu account going into money that holds another's. */
+export class AccountMismatch extends Error {
+  constructor(already, incoming) {
+    super(`This money already holds statements from Yehulu account ••${already.map(a => a.slice(-4)).join(', ••')}; `
+      + `this statement is from ••${incoming.map(a => a.slice(-4)).join(', ••')}. Import it into its own account.`)
+    this.already = already
+    this.incoming = incoming
   }
 }
 
