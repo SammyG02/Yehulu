@@ -170,7 +170,7 @@ function SaveProgress() {
 }
 
 function Welcome() {
-  const { accounts, account, currentRate, actions, shared, isOwner } = useSavings()
+  const { accounts, account, viewRate: currentRate, actions, shared, isOwner } = useSavings()
   const { enabled, user } = useAuth()
   // A second (or later) account, or a shared one, is empty, not a first visit.
   const extra = accounts.length > 1 || shared

@@ -25,7 +25,7 @@ const HORIZONS = [
 
 export default function GrowthPage() {
   usePageTitle('Growth')
-  const { account, viewTransactions, today, currentRate, actions, scope, viewMember } = useSavings()
+  const { account, viewTransactions, today, viewRate: currentRate, actions, scope, viewMember } = useSavings()
   const [horizon, setHorizon] = useState(90)
   const ledger = useLedger(horizon)
   const summary = useMemo(() => summarize(ledger, today), [ledger, today])

@@ -6,8 +6,9 @@ import { SERVICE_CHARGE, sanitizeGoal, sanitizeRates } from './storage.js'
  * buildAccounts turns database rows into the same account shape the app uses
  * on the device, plus the sharing details:
  *   { id, name, rates, goal, transactions, cloud: true, role, ownerId,
- *     membersSeeAll, inviteCode, members: [{ id, name, avatarUrl, role, guest }],
- *     activity: [{ memberKey, type, amount, date }] }
+ *     membersSeeAll, inviteCode, members: [{ id, name, avatarUrl, role, guest, rates }],
+ *     activity: [{ memberKey, type, amount, date, rates }] }
+ * A member's `rates` is their own rate history, or null to earn the account's.
  * `transactions` holds every transaction the user may see, each with a
  * memberId. `activity` is every transaction in the account without names,
  * for the account total.
@@ -59,13 +60,22 @@ export function buildAccounts({ userId, accounts, members, profiles, rates, tran
           name: (m.role === 'guest' ? m.guest_name : profileById.get(m.user_id)?.name) || 'Member',
           avatarUrl: m.role === 'guest' ? null : profileById.get(m.user_id)?.avatar_url ?? null,
           goal: sanitizeGoal({ target: m.goal_target, monthly: m.goal_monthly }),
+          rates: memberRatesFrom(m.rates),
         })),
         transactions: (txnsOf.get(a.id) ?? []).map(fromRow),
         activity: (activity.get(a.id) ?? []).map(r => ({
           memberKey: r.member_key, type: r.type, amount: Number(r.amount), date: r.date,
+          rates: memberRatesFrom(r.member_rates),
         })),
       }
     })
+}
+
+/** A member's own rates from the database (or null: they earn the account rate). */
+const memberRatesFrom = (json) => {
+  if (!Array.isArray(json) || json.length === 0) return null
+  const rates = sanitizeRates(json.map(r => ({ from: r.from, annualRate: Number(r.annual_rate), serviceCharge: SERVICE_CHARGE })))
+  return rates.length ? rates : null
 }
 
 const fromRow = (t) => ({
@@ -153,6 +163,11 @@ export const cloudApi = (client) => ({
   /** Adds someone by name (no sign-in). Returns their member id. */
   async addGuest(accountId, name) {
     return check(await client.rpc('add_guest', { acc: accountId, guest: name }))
+  },
+  /** Owner: a member's own rates, or null to use the account rate again. */
+  async setMemberRates(accountId, memberId, rates) {
+    const json = rates ? rates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null
+    check(await client.rpc('set_member_rates', { acc: accountId, member: memberId, new_rates: json }))
   },
   async renameGuest(accountId, guestId, name) {
     check(await client.rpc('rename_guest', { acc: accountId, guest: guestId, new_name: name }))

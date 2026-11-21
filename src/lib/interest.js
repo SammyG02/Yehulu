@@ -239,11 +239,17 @@ const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'available', 'inte
  * lists, one per person. Same row fields as simulateLedger.
  */
 export function simulateGroupLedger({ groups, rates, fromDate, endDate }) {
-  const lists = groups.filter(list => list.length > 0)
-  if (lists.length <= 1) return simulateLedger({ transactions: lists[0] ?? [], rates, fromDate, endDate })
+  // A group is a list of transactions, or { transactions, rates } for a person
+  // with their own rate.
+  const people = groups
+    .map(g => (Array.isArray(g) ? { transactions: g, rates } : { transactions: g.transactions, rates: g.rates ?? rates }))
+    .filter(p => p.transactions.length > 0)
+  if (people.length <= 1) {
+    return simulateLedger({ transactions: people[0]?.transactions ?? [], rates: people[0]?.rates ?? rates, fromDate, endDate })
+  }
   // A shared start date, so every person's rows line up day by day.
-  const start = [fromDate, ...lists.flat().map(t => t.date)].sort()[0]
-  const ledgers = lists.map(transactions => simulateLedger({ transactions, rates, fromDate: start, endDate }))
+  const start = [fromDate, ...people.flatMap(p => p.transactions.map(t => t.date))].sort()[0]
+  const ledgers = people.map(p => simulateLedger({ transactions: p.transactions, rates: p.rates, fromDate: start, endDate }))
   return ledgers[0].map((row, i) => {
     const total = { date: row.date }
     for (const key of SUMMED) total[key] = ledgers.reduce((sum, l) => sum + l[i][key], 0)

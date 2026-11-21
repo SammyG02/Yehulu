@@ -156,7 +156,9 @@ function RateHistory({ editing, onEdit }) {
 }
 
 function LogicPanel() {
-  const { account, currentRate, isOwner } = useSavings()
+  const { account, currentRate, isOwner, me, today } = useSavings()
+  // The owner may have given you your own rate, different from the account's.
+  const myRates = account.members?.find(m => m.id === me)?.rates
   const [editing, setEditing] = useState(null)
 
   return (
@@ -167,6 +169,11 @@ function LogicPanel() {
             <p className="text-xs font-semibold text-muted">Rate today</p>
             <p className="text-lg font-extrabold tracking-tight">{describe(currentRate)}</p>
           </div>
+          {myRates && (
+            <p className="rounded-xl bg-accent-soft px-3 py-2 text-sm text-accent">
+              <span className="font-semibold">Your own rate: {periodOn(myRates, today).annualRate}% a year.</span> The owner set it for you, so your interest uses it instead of the account rate.
+            </p>
+          )}
           <RateFigures period={currentRate} />
           <ul className="space-y-1 text-xs leading-relaxed text-muted">
             <li><span className="font-semibold text-ink">Service charge:</span> {SERVICE_CHARGE}% of interest, set by Yehulu.</li>

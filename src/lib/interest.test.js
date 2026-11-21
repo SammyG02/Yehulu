@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { simulateLedger, summarize, findOverdraft, findNewOverdraft, dailyRate, effectiveAnnualRate, planGoal } from './interest.js'
+import { simulateLedger, summarize, findOverdraft, findNewOverdraft, dailyRate, effectiveAnnualRate, planGoal, simulateGroupLedger } from './interest.js'
 import { addDays } from './dates.js'
 
 const TODAY = '2026-11-16'
@@ -220,4 +220,18 @@ test('worked example: edits and deletes recalculate everything, and fees follow 
   // Edits that would push the balance below zero are caught (the app refuses them).
   assert.equal(findNewOverdraft(base, edit(base, 'd1', { amount: 3000 }), rates), '2026-10-20')
   assert.equal(findNewOverdraft(base, edit(base, 'w1', { amount: 250000 }), rates), '2026-10-20')
+})
+
+test('in a shared account each person can earn their own rate; the total adds them up', () => {
+  const endDate = '2026-11-19'
+  const a = [{ id: 'a1', type: 'deposit', amount: 100000, date: '2026-10-01' }]
+  const b = [{ id: 'b1', type: 'deposit', amount: 100000, date: '2026-10-01' }]
+  const forty = [{ from: '2026-01-01', annualRate: 0.4, serviceCharge: 0.1 }]
+  const two = [{ from: '2026-01-01', annualRate: 0.02, serviceCharge: 0.1 }]
+  const alone = (transactions, rates) => simulateLedger({ transactions, rates, fromDate: endDate, endDate }).at(-1).balance
+  const group = simulateGroupLedger({ groups: [{ transactions: a, rates: forty }, { transactions: b, rates: two }], rates: forty, fromDate: endDate, endDate })
+  assert.equal(Math.round(group.at(-1).balance * 100) / 100, Math.round((alone(a, forty) + alone(b, two)) * 100) / 100)
+  assert.ok(alone(b, two) < alone(a, forty))
+  // 2% for 50 days on 100,000: about Br 247 of interest, not Br 4,900.
+  assert.ok(alone(b, two) > 100240 && alone(b, two) < 100260, String(alone(b, two)))
 })

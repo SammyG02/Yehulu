@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Copy, DoorOpen, Link2, Link2Off, Pencil, RefreshCw, Share2, UserMinus, UserPlus } from 'lucide-react'
+import { Copy, DoorOpen, Link2, Link2Off, Pencil, Percent, RefreshCw, Share2, UserMinus, UserPlus } from 'lucide-react'
 import { Avatar } from '../../components/accounts/Avatar.jsx'
+import { MemberRateSheet } from '../../components/accounts/MemberRateSheet.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
 import { inputClass } from '../../components/ui/Field.jsx'
+import { periodOn } from '../../lib/interest.js'
 import { useAuth, useConfirm, useSavings } from '../../state/hooks.js'
 
 const inviteUrl = (code) => `${window.location.origin}/join/${code}`
@@ -161,10 +163,14 @@ function GuestNameForm({ initial = '', submitLabel, onSubmit, onCancel }) {
 }
 
 function MemberList() {
-  const { account, allTransactions, me, isOwner, actions } = useSavings()
+  const { account, allTransactions, me, isOwner, today, actions } = useSavings()
   const confirm = useConfirm()
   const [adding, setAdding] = useState(false)
   const [renaming, setRenaming] = useState(null)
+  const [rateFor, setRateFor] = useState(null)
+  const accountRate = periodOn(account.rates, today).annualRate
+  // "40%" for the account rate, "2% · own rate" when the owner set one.
+  const rateText = (m) => (m.rates ? `${periodOn(m.rates, today).annualRate}% · own rate` : `${accountRate}%`)
 
   const remove = async (m) => {
     const count = allTransactions.filter(t => t.memberId === m.id).length
@@ -197,8 +203,19 @@ function MemberList() {
             <Avatar member={m} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{m.id === me ? `You (${m.name})` : m.name}</span>
-              <span className="block text-xs text-muted">{roleText(m)}</span>
+              <span className="block truncate text-xs text-muted">{roleText(m)} · <span className={m.rates ? 'font-semibold text-accent' : ''}>{rateText(m)}</span></span>
             </span>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setRateFor(m.id)}
+                aria-label={`${m.name}'s rate`}
+                title="Set their own rate"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink"
+              >
+                <Percent className="h-4 w-4" />
+              </button>
+            )}
             {isOwner && m.guest && (
               <button type="button" onClick={() => setRenaming(m.id)} aria-label={`Rename ${m.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-sunken hover:text-ink">
                 <Pencil className="h-4 w-4" />
@@ -225,6 +242,7 @@ function MemberList() {
           <UserPlus className="h-4 w-4" aria-hidden="true" /> Add someone who doesn't use the app
         </button>
       ))}
+      <MemberRateSheet member={account.members.find(m => m.id === rateFor)} open={rateFor !== null} onClose={() => setRateFor(null)} />
     </Card>
   )
 }

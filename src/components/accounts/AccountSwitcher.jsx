@@ -135,7 +135,7 @@ export function AccountList({ onPick }) {
 
 /** Top-bar chip showing the open account; opens a sheet to switch or add one. */
 export function AccountSwitcher() {
-  const { account, currentRate } = useSavings()
+  const { account, viewRate: currentRate } = useSavings()
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const close = () => { setOpen(false); setAdding(false) }

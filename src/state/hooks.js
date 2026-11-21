@@ -1,7 +1,7 @@
 import { useContext, useMemo } from 'react'
 import { addDays } from '../lib/dates.js'
 import { simulateGroupLedger, simulateLedger, summarize } from '../lib/interest.js'
-import { toRates } from '../lib/storage.js'
+import { ratesOf, toRates } from '../lib/storage.js'
 import { AuthContext, ConfirmContext, SavingsContext, ThemeContext } from './contexts.js'
 
 /** Account, transactions, derived values and every action (see savings.jsx). */
@@ -27,7 +27,7 @@ export function useAccountBalances() {
   const { accounts, today, me } = useSavings()
   return useMemo(() => new Map(accounts.map(a => {
     const transactions = a.cloud ? a.transactions.filter(t => t.memberId === me) : a.transactions
-    const ledger = simulateLedger({ transactions, rates: toRates(a), fromDate: today, endDate: today })
+    const ledger = simulateLedger({ transactions, rates: a.cloud ? ratesOf(a, me) : toRates(a), fromDate: today, endDate: today })
     return [a.id, summarize(ledger, today).balance]
   })), [accounts, today, me])
 }
@@ -37,13 +37,20 @@ export function useAccountBalances() {
  * from the anonymous activity list, so it works even when the owner keeps
  * balances private. Each member earns interest on their own money.
  */
+// One person's balance from the anonymous activity list, at their own rate.
+const activityBalance = (transactions, account, today) => summarize(simulateLedger({
+  transactions,
+  rates: transactions[0]?.rates ? toRates({ rates: transactions[0].rates }) : toRates(account),
+  fromDate: today,
+  endDate: today,
+}), today).balance
+
 export function useAccountTotals() {
   const { accounts, today } = useSavings()
   return useMemo(() => new Map(accounts.filter(a => a.cloud && a.members?.length > 1).map(a => {
     const byMember = new Map()
     for (const t of a.activity ?? []) byMember.set(t.memberKey, [...(byMember.get(t.memberKey) ?? []), t])
-    const total = [...byMember.values()].reduce((sum, transactions) => sum
-      + summarize(simulateLedger({ transactions, rates: toRates(a), fromDate: today, endDate: today }), today).balance, 0)
+    const total = [...byMember.values()].reduce((sum, transactions) => sum + activityBalance(transactions, a, today), 0)
     return [a.id, total]
   })), [accounts, today])
 }
@@ -53,21 +60,22 @@ export function useAccountTotals() {
  * members you may see). Everyone earns interest on their own money.
  */
 export function useMemberBalances() {
-  const { account, allTransactions, rates, today } = useSavings()
+  const { account, allTransactions, today } = useSavings()
   return useMemo(() => {
-    const balanceOf = (transactions) =>
-      summarize(simulateLedger({ transactions, rates, fromDate: today, endDate: today }), today).balance
     const group = (list, key) => {
       const map = new Map()
       for (const item of list) map.set(key(item), [...(map.get(key(item)) ?? []), item])
       return map
     }
     // The total comes from the anonymous list, so it's right even for members
-    // who can only see their own transactions.
-    const total = [...group(account.activity ?? [], t => t.memberKey).values()].reduce((sum, list) => sum + balanceOf(list), 0)
-    const byMember = new Map([...group(allTransactions, t => t.memberId)].map(([id, list]) => [id, balanceOf(list)]))
+    // who can only see their own transactions. Each person earns their own rate.
+    const total = [...group(account.activity ?? [], t => t.memberKey).values()]
+      .reduce((sum, list) => sum + activityBalance(list, account, today), 0)
+    const byMember = new Map([...group(allTransactions, t => t.memberId)].map(([id, list]) => [id,
+      summarize(simulateLedger({ transactions: list, rates: ratesOf(account, id), fromDate: today, endDate: today }), today).balance,
+    ]))
     return { total, byMember }
-  }, [account.activity, allTransactions, rates, today])
+  }, [account, allTransactions, today])
 }
 
 /** confirm({ title, message, confirmLabel, danger }) → Promise<boolean> (see confirm.jsx). */

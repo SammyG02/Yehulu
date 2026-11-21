@@ -65,7 +65,7 @@ test('members list the owner first, with names from profiles', () => {
 test('name-only members are named by the owner and marked as guests', () => {
   const grandma = buildAccounts(rows)[1].members.find(m => m.id === 'g-1')
   assert.deepEqual(grandma, {
-    id: 'g-1', role: 'guest', guest: true, name: 'Grandma', avatarUrl: null, goal: { target: null, monthly: 0 },
+    id: 'g-1', role: 'guest', guest: true, name: 'Grandma', avatarUrl: null, goal: { target: null, monthly: 0 }, rates: null,
   })
 })
 
@@ -78,4 +78,13 @@ test('transactions keep whose they are; amounts become numbers', () => {
   const group = buildAccounts(rows)[1]
   assert.deepEqual(group.transactions, [{ id: 't1', type: 'deposit', amount: 1500.5, date: '2026-11-04', note: '', memberId: ME }])
   assert.deepEqual(group.activity.map(a => [a.memberKey, a.amount]), [['k1', 1500.5], ['k2', 800]])
+})
+
+test("a member's own rate comes along; without one they earn the account rate", async () => {
+  const { ratesOf } = await import('./storage.js')
+  const withRate = rows.members.map(m => (m.user_id === 'g-1' ? { ...m, rates: [{ from: '2026-01-01', annual_rate: 2 }] } : m))
+  const account = buildAccounts({ ...rows, members: withRate })[1]
+  assert.deepEqual(account.members.find(m => m.id === 'g-1').rates, [{ from: '2026-01-01', annualRate: 2, serviceCharge: 10 }])
+  assert.deepEqual(ratesOf(account, 'g-1'), [{ from: '2026-01-01', annualRate: 0.02, serviceCharge: 0.1 }])
+  assert.deepEqual(ratesOf(account, ME), account.rates.map(r => ({ ...r, annualRate: r.annualRate / 100, serviceCharge: r.serviceCharge / 100 })))
 })

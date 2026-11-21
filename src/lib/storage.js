@@ -96,6 +96,14 @@ export const toFraction = ({ from, annualRate, serviceCharge }) => ({
 /** The account's whole rate history as fractions, for simulateLedger and friends. */
 export const toRates = (account) => account.rates.map(toFraction)
 
+/**
+ * The rate history one member earns: their own if the owner set one, else the
+ * account's. Device accounts (no members) always use the account's.
+ */
+export const memberRateList = (account, memberId) =>
+  account.members?.find(m => m.id === memberId)?.rates ?? account.rates
+export const ratesOf = (account, memberId) => memberRateList(account, memberId).map(toFraction)
+
 /** Savings goal: a target balance and an optional monthly top-up. */
 export const sanitizeGoal = (goal) => {
   const target = Number(goal?.target)

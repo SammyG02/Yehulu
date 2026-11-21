@@ -6,7 +6,7 @@ import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn } from '../lib/interest.js'
 import {
-  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, sanitizeRates, saveState, STORAGE_KEY, toRates,
+  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, memberRateList, ratesOf, sanitizeRates, saveState, STORAGE_KEY, toRates,
 } from '../lib/storage.js'
 import { supabase } from '../lib/supabase.js'
 
@@ -246,11 +246,11 @@ export function SavingsProvider({ children }) {
   )
   // One list per person, for the whole-account ledger.
   const viewGroups = useMemo(() => {
-    if (scope !== 'all') return [viewTransactions]
+    if (scope !== 'all') return [{ transactions: viewTransactions, rates: ratesOf(account, viewMember?.id ?? me) }]
     const byMember = new Map()
     for (const t of account.transactions) byMember.set(t.memberId, [...(byMember.get(t.memberId) ?? []), t])
-    return [...byMember.values()]
-  }, [scope, viewTransactions, account.transactions])
+    return [...byMember].map(([id, transactions]) => ({ transactions, rates: ratesOf(account, id) }))
+  }, [scope, viewTransactions, viewMember, me, account])
   const viewGoal = useMemo(
     () => (viewMember ? (viewMember.goal ?? { target: null, monthly: 0 }) : account.goal),
     [viewMember, account.goal],
@@ -260,8 +260,13 @@ export function SavingsProvider({ children }) {
     if (id === me) return 'You'
     return account.members?.find(m => m.id === id)?.name ?? 'Former member'
   }, [account.members, me])
-  const rates = useMemo(() => toRates(account), [account])
+  // The rates of the person in view (yours, or the member you view as): their
+  // own if the owner set one, else the account's. `currentRate` is always the
+  // account's (the one Settings edits); `viewRate` is what the person earns today.
+  const viewPerson = viewMember?.id ?? me
+  const rates = useMemo(() => ratesOf(account, viewPerson), [account, viewPerson])
   const currentRate = useMemo(() => periodOn(account.rates, today), [account.rates, today])
+  const viewRate = useMemo(() => periodOn(memberRateList(account, viewPerson), today), [account, viewPerson, today])
 
   // ---- transactions --------------------------------------------------------
 
@@ -272,7 +277,7 @@ export function SavingsProvider({ children }) {
    */
   const newOverdraft = useCallback((memberId, nextList) => {
     const current = activeOf(dataRef.current)
-    return findNewOverdraft(ofMember(current.transactions, memberId), ofMember(nextList, memberId), toRates(current))
+    return findNewOverdraft(ofMember(current.transactions, memberId), ofMember(nextList, memberId), ratesOf(current, memberId))
   }, [])
   const overdraftError = useCallback((memberId, nextList) => {
     const date = newOverdraft(memberId, nextList)
@@ -358,6 +363,7 @@ export function SavingsProvider({ children }) {
     const next = sanitizeRates(nextRates)
     if (next.length === 0) return false
     const memberIds = [...new Set(current.transactions.map(memberOf))]
+      .filter(m => !current.members?.find(x => x.id === m)?.rates)
     const overdraft = memberIds
       .map(m => {
         const list = ofMember(current.transactions, m)
@@ -489,6 +495,29 @@ export function SavingsProvider({ children }) {
     showToast('Name saved')
   }, [setData, remote, showToast])
 
+  /**
+   * Owner: give one member their own rate history, or null to go back to the
+   * account rate. Asks first if it would push their balance below zero.
+   */
+  const setMemberRates = useCallback(async (memberId, nextRates) => {
+    const current = activeOf(dataRef.current)
+    if (!current.cloud || current.role !== 'owner') return false
+    const next = nextRates ? sanitizeRates(nextRates) : null
+    if (next && next.length === 0) return false
+    const list = ofMember(current.transactions, memberId)
+    const after = { ...current, members: current.members.map(m => (m.id === memberId ? { ...m, rates: next } : m)) }
+    const overdraft = findNewOverdraft(list, list, ratesOf(current, memberId), ratesOf(after, memberId))
+    if (overdraft && !(await confirm({
+      title: 'Save this rate anyway?',
+      message: `With this rate their balance goes below zero on ${formatDate(overdraft)}.`,
+      confirmLabel: 'Save anyway',
+    }))) return false
+    setData(d => withAccount(d, a => ({ ...a, members: a.members.map(m => (m.id === memberId ? { ...m, rates: next } : m)) })))
+    remote(() => api.setMemberRates(current.id, memberId, next))
+    showToast(next ? 'Rate saved' : 'Back to the account rate')
+    return true
+  }, [confirm, setData, remote, showToast])
+
   /** Leaves a shared account (members only). */
   const leaveAccount = useCallback(() => {
     const current = activeOf(dataRef.current)
@@ -528,6 +557,7 @@ export function SavingsProvider({ children }) {
     removeMember,
     addGuest,
     renameGuest,
+    setMemberRates,
     leaveAccount,
     joinAccount,
     invitePreview,
@@ -551,7 +581,7 @@ export function SavingsProvider({ children }) {
     showToast,
     dismissToast,
   }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, deleteAccount,
-    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, leaveAccount, joinAccount, invitePreview,
+    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 
   const value = useMemo(() => ({
@@ -581,10 +611,11 @@ export function SavingsProvider({ children }) {
     allTransactions: account.transactions,
     rates,
     currentRate,
+    viewRate,
     composer,
     toast,
     actions,
-  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canSeeAll, scope, setScope, viewTransactions, viewGroups, viewMember, viewGoal, canEdit, memberName, account, mine, rates, currentRate,
+  }), [today, data, localData, cloudMode, userId, cloudStatus, cloudError, me, isOwner, shared, canSeeAll, scope, setScope, viewTransactions, viewGroups, viewMember, viewGoal, canEdit, memberName, account, mine, rates, currentRate, viewRate,
     composer, toast, actions])
 
   return <SavingsContext.Provider value={value}>{children}</SavingsContext.Provider>
