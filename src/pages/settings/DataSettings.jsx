@@ -1,13 +1,33 @@
 import { useRef, useState } from 'react'
-import { Download, Trash2, Upload } from 'lucide-react'
+import { Download, FileSpreadsheet, Trash2, Upload } from 'lucide-react'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { toDateKey } from '../../lib/dates.js'
 import { exportState, parseBackup } from '../../lib/storage.js'
-import { useConfirm, useSavings } from '../../state/hooks.js'
+import { useConfirm, useLedger, useSavings } from '../../state/hooks.js'
+import { buildExport, exportFileName } from '../../lib/exportBook.js'
 
 export default function DataSettings() {
-  const { data, cloudMode, actions } = useSavings()
+  const { data, cloudMode, actions, account, viewTransactions, today, viewRate, scope, viewMember, shared, memberName } = useSavings()
+  const ledger = useLedger(1)
+  const view = !shared ? null : scope === 'all' ? 'Everyone' : viewMember ? viewMember.name : 'You'
+
+  // The open account, as you're viewing it, as an Excel file.
+  const exportExcel = async () => {
+    const { makeXlsx } = await import('../../lib/xlsx.js')
+    const sheets = buildExport({
+      account, view, transactions: viewTransactions, ledger, today, rate: viewRate,
+      whose: (t) => (shared && t.memberId ? memberName(t.memberId) : null),
+    })
+    const blob = new Blob([makeXlsx(sheets)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = exportFileName(account, view, today)
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    actions.showToast('Excel file downloaded')
+  }
   const confirm = useConfirm()
   const [error, setError] = useState(null)
   const fileRef = useRef(null)
@@ -62,6 +82,12 @@ export default function DataSettings() {
     >
       <Card className="overflow-hidden">
         <div className="divide-y divide-line">
+          <SettingsRow
+            icon={FileSpreadsheet}
+            label="Export to Excel"
+            description={`${account.name}${view ? ` (${view})` : ''}: transactions, daily interest, months`}
+            onClick={exportExcel}
+          />
           <SettingsRow icon={Download} label="Back up" description="Download a copy as a file" onClick={backUp} />
           {!cloudMode && (
             <SettingsRow icon={Upload} label="Restore" description="Replace everything with a backup file" onClick={() => fileRef.current?.click()} />

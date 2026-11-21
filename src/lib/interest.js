@@ -234,7 +234,7 @@ export function planGoal({ transactions, rates, today, target, monthlyDeposit = 
   return null
 }
 
-const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'available', 'interest', 'balance']
+const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'available', 'grossInterest', 'serviceCharge', 'interest', 'balance']
 
 /**
  * The whole account's ledger when several people save in it. Everyone earns
