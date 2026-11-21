@@ -203,7 +203,7 @@ function ComposerForm({ composer, onClose }) {
           <span className="text-muted">Withdrawal fee (0.2%)</span>
           <span className="font-semibold tabular-nums">
             {formatMoney(withdrawalFee(parseFloat(amount)))}
-            <span className="font-normal text-muted"> · {formatMoney(parseFloat(amount) + withdrawalFee(parseFloat(amount)))} in total</span>
+            <span className="font-normal text-muted"> · {formatMoney(parseFloat(amount) + withdrawalFee(parseFloat(amount)))} leaves your account</span>
           </span>
         </p>
       )}
