@@ -5,7 +5,6 @@ import { InstallBanner } from '../../components/InstallBanner.jsx'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card } from '../../components/ui/Card.jsx'
-import { inputClass } from '../../components/ui/Field.jsx'
 import { currentSubscription, disablePush, enablePush, pushSupport } from '../../lib/push.js'
 import { supabase } from '../../lib/supabase.js'
 import { useAuth, useSavings } from '../../state/hooks.js'
@@ -94,7 +93,8 @@ export default function NotificationsSettings() {
           </Card>
           {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
 
-          <Card className="divide-y divide-line">
+          {/* Which kinds: only once this phone gets notifications at all. */}
+          {on && <Card className="divide-y divide-line">
             {KINDS.map(([key, label, hint]) => (
               <div key={key} className="p-4">
                 <label className="flex cursor-pointer items-start justify-between gap-4">
@@ -105,9 +105,9 @@ export default function NotificationsSettings() {
                   <input type="checkbox" role="switch" checked={prefs[key]} onChange={(e) => save({ [key]: e.target.checked })} className={SWITCH} />
                 </label>
                 {key === 'reminder' && prefs.reminder && (
-                  <label className="mt-3 flex items-center gap-2 text-sm">
+                  <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
                     <span className="text-muted">Remind me on day</span>
-                    <select value={prefs.reminder_day} onChange={(e) => save({ reminder_day: Number(e.target.value) })} className={`${inputClass} w-20 py-1.5`} aria-label="Day of the month">
+                    <select value={prefs.reminder_day} onChange={(e) => save({ reminder_day: Number(e.target.value) })} className="w-16 rounded-lg border border-line bg-sunken px-2 py-1.5 text-sm tabular-nums" aria-label="Day of the month">
                       {Array.from({ length: 28 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}
                     </select>
                     <span className="text-muted">of each month</span>
@@ -115,8 +115,14 @@ export default function NotificationsSettings() {
                 )}
               </div>
             ))}
-          </Card>
-          <p className="text-xs text-muted">These choices apply to all your phones. "Turn on" is for each phone.</p>
+          </Card>}
+          {on && <p className="text-xs text-muted">These choices apply to all your phones. "Turn on" is for each phone.</p>}
+          {on === false && (
+            <p className="text-xs text-muted">
+              Once on, you choose which ones you get: weekly interest summary, goal reached, monthly deposit reminder,
+              and money added to shared accounts.
+            </p>
+          )}
         </>
       )}
     </SettingsPanel>
