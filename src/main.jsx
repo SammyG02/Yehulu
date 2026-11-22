@@ -16,10 +16,14 @@ if (Capacitor.isNativePlatform()) {
   // The native app ships its files inside it, so it needs no service worker.
   import('./native.js').then((m) => m.setupNative())
 } else if (import.meta.env.PROD) {
-  // No offline copy: remove the old service worker and its cache from phones
-  // that still have one.
+  // No offline copy: remove the old caching service worker (sw.js) and its
+  // cache from phones that still have one. The notifications helper
+  // (push-sw.js, see lib/push.js) is kept: it stores nothing.
   navigator.serviceWorker?.getRegistrations()
-    .then((regs) => regs.forEach((r) => r.unregister()))
+    .then((regs) => regs.forEach((r) => {
+      const script = (r.active ?? r.waiting ?? r.installing)?.scriptURL ?? ''
+      if (!script.endsWith('/push-sw.js')) r.unregister()
+    }))
     .catch(() => {})
   window.caches?.keys()
     .then((names) => names.forEach((n) => window.caches.delete(n)))

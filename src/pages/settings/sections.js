@@ -1,10 +1,11 @@
-import { Calculator, CircleUserRound, Database, FileText, Palette, Plug, Users, Wallet } from 'lucide-react'
+import { Bell, Calculator, CircleUserRound, Database, FileText, Palette, Plug, Users, Wallet } from 'lucide-react'
 import AccountsSettings from './AccountsSettings.jsx'
 import ProfileSettings from './ProfileSettings.jsx'
 import SharingSettings from './SharingSettings.jsx'
 import DataSettings from './DataSettings.jsx'
 import ImportSettings from './ImportSettings.jsx'
 import ConnectedAppsSettings from './ConnectedAppsSettings.jsx'
+import NotificationsSettings from './NotificationsSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
 import { THEME_OPTIONS } from './themeOptions.js'
@@ -43,6 +44,13 @@ export const SETTINGS_SECTIONS = [
     Component: SharingSettings,
     summary: ({ user, account }) => (!user || !account.cloud ? 'Save with friends'
       : account.members.length > 1 ? `${account.members.length} members` : 'Invite friends'),
+  },
+  {
+    path: 'notifications',
+    label: 'Notifications',
+    icon: Bell,
+    Component: NotificationsSettings,
+    summary: () => 'Weekly summary, goals, reminders',
   },
   {
     path: 'connections',

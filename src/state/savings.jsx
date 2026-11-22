@@ -39,6 +39,20 @@ const withAccount = (state, fn, id = state.activeId) => ({
 const memberOf = (txn) => txn.memberId ?? null
 const ofMember = (list, memberId) => list.filter(t => memberOf(t) === memberId)
 
+/** Asks the server to notify the others in a shared account (see api/push/activity.js). */
+async function notifyShared(transactionId) {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return
+    await fetch('/api/push/activity', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transaction_id: transactionId }),
+    })
+  } catch { /* notifications are a bonus; the money is saved either way */ }
+}
+
 const CLOUD_ACTIVE_KEY = 'yehuluCloudActive'
 const readCloudActive = () => { try { return localStorage.getItem(CLOUD_ACTIVE_KEY) } catch { return null } }
 const writeCloudActive = (id) => { try { localStorage.setItem(CLOUD_ACTIVE_KEY, id) } catch { /* ignore */ } }
@@ -298,7 +312,11 @@ export function SavingsProvider({ children }) {
     const error = overdraftError(memberId, [...current.transactions, record])
     if (error) return error
     setData(d => withAccount(d, a => ({ ...a, transactions: [...a.transactions, record] })))
-    remote(() => api.addTransaction(current.id, record))
+    remote(async () => {
+      await api.addTransaction(current.id, record)
+      // Shared account: let the others know (best effort; never blocks saving).
+      if (record.type === 'deposit' && current.members?.length > 1) notifyShared(record.id)
+    })
     showToast(`${label(txn)} added`)
     return null
   }, [userId, setData, overdraftError, remote, showToast])
