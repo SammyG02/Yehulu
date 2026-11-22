@@ -6,7 +6,7 @@ import { planImport, planRemoval } from '../lib/statement.js'
 import { planLink } from '../lib/linkMembers.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
-import { findNewOverdraft, periodOn } from '../lib/interest.js'
+import { findNewOverdraft, periodOn, simulateLedger, summarize } from '../lib/interest.js'
 import {
   emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, memberRateList, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
 } from '../lib/storage.js'
@@ -38,6 +38,37 @@ const withAccount = (state, fn, id = state.activeId) => ({
 // at one member's transactions. On the device there are no members (null).
 const memberOf = (txn) => txn.memberId ?? null
 const ofMember = (list, memberId) => list.filter(t => memberOf(t) === memberId)
+
+/**
+ * The goal a new deposit takes your balance past today, or null: the balance
+ * before and after it, worked out the app's usual way.
+ */
+function goalReachedBy(account, memberId, record, today) {
+  const target = Number(account.goal?.target) || 0
+  if (!(target > 0) || record.date > today) return null
+  const mine = ofMember(account.transactions, memberId)
+  const rates = ratesOf(account, memberId)
+  const balance = (list) => (list.length
+    ? summarize(simulateLedger({ transactions: list, rates, fromDate: today, endDate: today }), today).balance
+    : 0)
+  return balance(mine) < target && balance([...mine, record]) >= target ? target : null
+}
+
+/** Tells your other phones about a goal you just reached (see api/push/goal.js). */
+async function notifyGoal(accountId, target) {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return
+    const reg = await navigator.serviceWorker?.getRegistration('/')
+    const thisPhone = (await reg?.pushManager?.getSubscription())?.endpoint ?? null
+    await fetch('/api/push/goal', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId, target, this_phone: thisPhone }),
+    })
+  } catch { /* the in-app celebration already happened */ }
+}
 
 /** Asks the server to notify the others in a shared account (see api/push/activity.js). */
 async function notifyShared(transactionId) {
@@ -312,14 +343,21 @@ export function SavingsProvider({ children }) {
     const error = overdraftError(memberId, [...current.transactions, record])
     if (error) return error
     setData(d => withAccount(d, a => ({ ...a, transactions: [...a.transactions, record] })))
+    // Your own deposit taking you past your goal: celebrate now (and tell your
+    // other phones), instead of waiting for the next morning's notification.
+    const reached = record.type === 'deposit' && (!current.cloud || memberId === userId)
+      ? goalReachedBy(current, memberId, record, today) : null
     remote(async () => {
       await api.addTransaction(current.id, record)
       // Shared account: let the others know (best effort; never blocks saving).
       if (record.type === 'deposit' && current.members?.length > 1) notifyShared(record.id)
+      if (reached) notifyGoal(current.id, reached)
     })
-    showToast(`${label(txn)} added`)
+    showToast(reached
+      ? `🎉 Goal reached! ${current.name} passed your Br ${Math.round(reached).toLocaleString('en-US')} goal`
+      : `${label(txn)} added`)
     return null
-  }, [userId, setData, overdraftError, remote, showToast])
+  }, [userId, today, setData, overdraftError, remote, showToast])
 
   /** Returns an error message, or null on success. */
   const updateTransaction = useCallback((id, changes) => {

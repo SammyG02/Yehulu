@@ -52,7 +52,7 @@ function BalanceCard({ summary }) {
           <Amount value={summary.balance} />
         </p>
         {summary.depositedToday > 0 && (
-          <p className="mt-1 text-xs text-[#04160c]/70">Today's deposits start earning tomorrow.</p>
+          <p className="mt-1 text-xs text-[#04160c]/70">Today's deposit earns from today; interest is added tonight.</p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
