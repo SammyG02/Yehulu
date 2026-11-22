@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { Download, FileSpreadsheet, Trash2, Upload } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText, Trash2, Upload } from 'lucide-react'
+import { useNavigate } from 'react-router'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { toDateKey } from '../../lib/dates.js'
@@ -10,6 +11,7 @@ import { buildExport, exportFileName } from '../../lib/exportBook.js'
 export default function DataSettings() {
   const { data, cloudMode, actions, account, viewTransactions, today, viewRate, scope, viewMember, shared, memberName } = useSavings()
   const ledger = useLedger(1)
+  const navigate = useNavigate()
   const view = !shared ? null : scope === 'all' ? 'Everyone' : viewMember ? viewMember.name : 'You'
 
   // The open account, as you're viewing it, as an Excel file.
@@ -82,6 +84,12 @@ export default function DataSettings() {
     >
       <Card className="overflow-hidden">
         <div className="divide-y divide-line">
+          <SettingsRow
+            icon={FileText}
+            label="Import statement"
+            description="Add your history from Yehulu PDF statements"
+            onClick={() => navigate('/settings/import')}
+          />
           <SettingsRow
             icon={FileSpreadsheet}
             label="Export to Excel"

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
+import { AccountTabs } from '../../components/settings/AccountTabs.jsx'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
@@ -162,7 +163,8 @@ function LogicPanel() {
   const [editing, setEditing] = useState(null)
 
   return (
-    <SettingsPanel title="Logic" description={`How interest is worked out for ${account.name}. Each account has its own rate.`}>
+    <SettingsPanel title="Rate" description={`How interest is worked out for ${account.name}. Each account has its own rate.`}>
+      <AccountTabs />
       <Card className="overflow-hidden">
         <div className="space-y-3 p-4">
           <div>

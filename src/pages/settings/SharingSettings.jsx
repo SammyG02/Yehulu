@@ -4,6 +4,7 @@ import { Copy, DoorOpen, Link2, Link2Off, Pencil, Percent, RefreshCw, Share2, Us
 import { Avatar } from '../../components/accounts/Avatar.jsx'
 import { MemberRateSheet } from '../../components/accounts/MemberRateSheet.jsx'
 import { LinkGuestSheet } from '../../components/accounts/LinkGuestSheet.jsx'
+import { AccountTabs } from '../../components/settings/AccountTabs.jsx'
 import { SettingsPanel, SettingsRow } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card, CardHeader } from '../../components/ui/Card.jsx'
@@ -264,6 +265,7 @@ export default function SharingSettings() {
   if (!user || !account.cloud) {
     return (
       <SettingsPanel title="Sharing" description="Save together with friends in one account. Each person earns their own interest.">
+      <AccountTabs />
         <Card className="p-4 text-sm">
           <p className="text-muted">Sign in first, so your accounts are online where friends can join them.</p>
           <Link to="/settings/profile" className="mt-3 inline-block font-semibold text-brand-ink hover:underline">Go to Profile to sign in →</Link>
@@ -286,6 +288,7 @@ export default function SharingSettings() {
       title="Sharing"
       description={`Who saves in ${account.name}. Each person earns interest on their own money.`}
     >
+      <AccountTabs />
       {isOwner && <InviteCard />}
       <PrivacyCard />
       <MemberList />

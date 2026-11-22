@@ -1,29 +1,30 @@
-import { Navigate, NavLink, Outlet, useMatch } from 'react-router'
+import { Navigate, NavLink, Outlet, useLocation, useMatch } from 'react-router'
 import { ChevronRight } from 'lucide-react'
 import { PageHeader } from '../../components/layout/AppShell.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { useMediaQuery } from '../../hooks/useMediaQuery.js'
 import { usePageTitle } from '../../hooks/usePageTitle.js'
 import { useAuth, useSavings, useTheme } from '../../state/hooks.js'
-import { SETTINGS_SECTIONS } from './sections.js'
+import { SETTINGS_SECTIONS, menuSectionOf } from './sections.js'
 
 function SettingsMenu() {
   const { accounts, account, transactions, currentRate } = useSavings()
   const { preference } = useTheme()
   const { user } = useAuth()
   const context = { accounts, account, transactions, currentRate, preference, user }
+  const here = menuSectionOf(useLocation().pathname.split('/')[2] ?? '')
 
   return (
     <Card as="nav" aria-label="Settings sections" className="overflow-hidden">
       <ul className="divide-y divide-line">
-        {SETTINGS_SECTIONS.map(({ path, label, icon: Icon, summary }) => (
+        {SETTINGS_SECTIONS.filter(x => !x.parent).map(({ path, label, icon: Icon, summary }) => (
           <li key={path}>
             <NavLink
               to={`/settings/${path}`}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 px-4 py-3 transition hover:bg-sunken/70 ${isActive ? 'md:bg-brand-soft' : ''}`}
+              className={() =>
+                `group flex items-center gap-3 px-4 py-3 transition hover:bg-sunken/70 ${here === path ? 'md:bg-brand-soft' : ''}`}
             >
-              {({ isActive }) => (
+              {() => { const isActive = here === path; return (
                 <>
                   <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${isActive ? 'md:bg-brand md:text-on-brand' : ''} bg-sunken text-ink`}>
                     <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -34,7 +35,7 @@ function SettingsMenu() {
                   </span>
                   <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted md:hidden" aria-hidden="true" />
                 </>
-              )}
+              ) }}
             </NavLink>
           </li>
         ))}

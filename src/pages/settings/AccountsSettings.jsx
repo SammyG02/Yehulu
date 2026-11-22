@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { NewAccountForm } from '../../components/accounts/AccountSwitcher.jsx'
 import { accountKind, accountKindText } from '../../components/accounts/accountKind.js'
+import { AccountTabs } from '../../components/settings/AccountTabs.jsx'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card } from '../../components/ui/Card.jsx'
@@ -113,6 +114,7 @@ export default function AccountsSettings() {
       title="Accounts"
       description="Each account has its own rate, transactions and goal. Tap one to open it."
     >
+      <AccountTabs />
       <Card className="overflow-hidden">
         <ul className="divide-y divide-line">
           {accounts.map(a => (
