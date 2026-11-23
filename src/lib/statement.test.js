@@ -620,3 +620,28 @@ test('removing never touches your own entries, and removing everything leaves on
   const cut = await removeFrom(withOwn, '2026-01-01', '2026-12-31')
   assert.deepEqual(cut.transactions.map(t => t.id), ['mine'])
 })
+
+// ---- code review regressions -------------------------------------------------------
+
+test('removing a file also removes a line dated before the statement\'s first booking day (value date)', async () => {
+  const { planRemoval, importedPeriods } = await import('./statement.js')
+  // The deposit is booked on Mar 3 but valued Mar 1, so the line is dated Mar 1.
+  const rows = statementRows({ from: '2026-03-03', days: 3, rate: 40, moves: { '2026-03-03': [{ type: 'Transfer Credit', amount: 10000000 }] } })
+  rows[0].value = '2026-03-01'
+  const stmt = { ...parseStatementPages([page(rows)]), fileName: 'A.pdf' }
+  const acc = importInto(empty, [stmt])
+  assert.ok(acc.transactions.some(t => t.date === '2026-03-01'), 'line dated by its value date')
+  const [file] = importedPeriods(acc.transactions)
+  assert.equal(file.from, '2026-03-03', 'the file\'s period is its booking dates')
+  const plan = planRemoval({ existing: acc.transactions, accountNo: file.accountNo, from: file.from, to: file.to, source: file.source, rates: pct(acc.rates), newId })
+  assert.equal(plan.removed.deposits, 1, 'the Mar 1 deposit goes with its file')
+})
+
+test('two Yehulu accounts with the same file name are listed separately', async () => {
+  const { importedPeriods } = await import('./statement.js')
+  const a = { ...feb, fileName: 'statement.pdf' }
+  const accA = importInto(empty, [a])
+  const other = accA.transactions.map(t => ({ ...t, id: `o-${t.id}`, ref: t.ref?.replace('y:3000123456:', 'y:3000999999:') }))
+  const list = importedPeriods([...accA.transactions, ...other])
+  assert.deepEqual(list.map(p => p.accountNo).sort(), ['3000123456', '3000999999'])
+})

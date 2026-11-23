@@ -27,7 +27,9 @@ test('weekly summary on Sundays only, with the week\'s interest and today\'s bal
 })
 
 test('goal reached: sent once per account and target', () => {
-  const u = user({ accounts: [account({ goal: { target: 50000, monthly: 0 } })] })
+  // Crossed this week: a deposit on Nov 20 took the balance past 50,000.
+  const recent = [{ type: 'deposit', amount: 60000, date: '2026-11-20', no_fee: false }]
+  const u = user({ accounts: [account({ goal: { target: 50000, monthly: 0 }, transactions: recent })] })
   const goal = planNotifications(u, MONDAY).find(n => n.kind === 'goal')
   assert.equal(goal.key, 'acc:50000')
   assert.match(goal.body, /passed your Br 50,000 goal/)
@@ -55,4 +57,10 @@ test('several accounts: one weekly summary adding them up; a member\'s own rate 
   const weekly = planNotifications(u, SUNDAY).filter(n => n.kind === 'weekly')
   assert.equal(weekly.length, 1)
   assert.ok(!weekly[0].body.includes(' in '), 'no single account named')
+})
+
+test('a goal passed long ago is not announced when notifications start', () => {
+  // 100,000 since October, goal 50,000: passed weeks before; no "Goal reached" now.
+  const u = user({ accounts: [account({ goal: { target: 50000, monthly: 0 } })] })
+  assert.equal(planNotifications(u, MONDAY).filter(n => n.kind === 'goal').length, 0)
 })

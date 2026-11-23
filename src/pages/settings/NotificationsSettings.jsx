@@ -5,7 +5,7 @@ import { InstallBanner } from '../../components/InstallBanner.jsx'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card } from '../../components/ui/Card.jsx'
-import { currentSubscription, disablePush, enablePush, pushSupport } from '../../lib/push.js'
+import { disablePush, enablePush, isOnForMe, pushSupport } from '../../lib/push.js'
 import { supabase } from '../../lib/supabase.js'
 import { useAuth, useSavings } from '../../state/hooks.js'
 
@@ -29,7 +29,7 @@ export default function NotificationsSettings() {
   const [prefs, setPrefs] = useState(DEFAULTS)
 
   const load = useCallback(async () => {
-    setOn(Boolean(await currentSubscription().catch(() => null)))
+    setOn(await isOnForMe(supabase).catch(() => false))
     const { data } = await supabase.from('push_settings').select('weekly, goal, reminder, reminder_day, shared').maybeSingle()
     if (data) setPrefs({ ...DEFAULTS, ...data })
   }, [])
@@ -60,10 +60,12 @@ export default function NotificationsSettings() {
   }
 
   const save = async (change) => {
+    const before = prefs
     const next = { ...prefs, ...change }
     setPrefs(next)
     const { error: err } = await supabase.from('push_settings').upsert({ user_id: user.id, ...next })
-    if (err) setError(err.message)
+    // Not saved: put the switch back, so it never shows a choice that isn't kept.
+    if (err) { setPrefs(before); setError(`Couldn't save that: ${err.message}`) }
   }
 
   return (

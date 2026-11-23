@@ -19,19 +19,24 @@ export default async function handler(req, res) {
     return send(res, 502, { error: `Couldn't read who to notify (${err.message}).` })
   }
 
-  const marks = []
   let notifications = 0
   let phones = 0
+  const failed = []
   for (const user of users ?? []) {
-    const list = planNotifications(user, today)
-    for (const n of list) {
-      const { sent, gone } = await sendToPhones(user.phones ?? [], n)
-      phones += sent
-      notifications++
-      if (sent > 0) marks.push({ user_id: user.user_id, kind: n.kind, key: n.key })
-      for (const endpoint of gone) await rpc('push_forget', { secret, p_endpoint: endpoint }).catch(() => {})
+    // One notification at a time, recorded straight after it's sent: if the job
+    // stops halfway, nobody gets the same notification again tomorrow, and
+    // one person's problem doesn't stop everyone else's.
+    try {
+      for (const n of planNotifications(user, today)) {
+        const { sent, gone } = await sendToPhones(user.phones ?? [], n)
+        phones += sent
+        notifications++
+        if (sent > 0) await rpc('push_mark', { secret, sent: [{ user_id: user.user_id, kind: n.kind, key: n.key }] })
+        for (const endpoint of gone) await rpc('push_forget', { secret, p_endpoint: endpoint }).catch(() => {})
+      }
+    } catch (err) {
+      failed.push(err.message)
     }
   }
-  if (marks.length) await rpc('push_mark', { secret, sent: marks })
-  return send(res, 200, { today, people: users?.length ?? 0, notifications, delivered: phones })
+  return send(res, failed.length && !phones ? 500 : 200, { today, people: users?.length ?? 0, notifications, delivered: phones, failed })
 }

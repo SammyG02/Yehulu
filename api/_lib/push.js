@@ -3,6 +3,7 @@
 //   VITE_VAPID_PUBLIC_KEY for the app).
 
 import webpush from 'web-push'
+import { rpc } from './app.js'
 
 let ready = false
 const setup = () => {
@@ -32,4 +33,17 @@ export async function sendToPhones(phones, { title, body, url = '/' }) {
     }
   }))
   return { sent, gone }
+}
+
+/** Forgets phones the push service says no longer exist (needs CRON_SECRET). */
+export async function forgetGone(endpoints) {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return
+  for (const endpoint of endpoints) await rpc('push_forget', { secret, p_endpoint: endpoint }).catch(() => {})
+}
+
+/** A request's JSON body, or null if it isn't valid JSON. */
+export function readBody(req) {
+  if (req.body && typeof req.body === 'object') return req.body
+  try { return JSON.parse(req.body || '{}') } catch { return null }
 }

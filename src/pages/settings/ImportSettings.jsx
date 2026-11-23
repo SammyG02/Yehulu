@@ -447,7 +447,7 @@ function ImportedList() {
     <Card className="p-4 sm:p-5">
       <h3 className="text-sm font-bold">Imported into {account.name}</h3>
       <ul className="divide-y divide-line">
-        {periods.map(p => <ImportedPeriod key={p.source ?? `old-${p.accountNo}`} period={p} />)}
+        {periods.map(p => <ImportedPeriod key={`${p.accountNo}:${p.source ?? 'old'}`} period={p} />)}
       </ul>
     </Card>
   )

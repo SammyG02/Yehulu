@@ -347,15 +347,16 @@ export function SavingsProvider({ children }) {
     // other phones), instead of waiting for the next morning's notification.
     const reached = record.type === 'deposit' && (!current.cloud || memberId === userId)
       ? goalReachedBy(current, memberId, record, today) : null
+    const celebrate = () => showToast(`🎉 Goal reached! ${current.name} passed your Br ${Math.round(reached).toLocaleString('en-US')} goal`)
     remote(async () => {
       await api.addTransaction(current.id, record)
+      // Signed in: celebrate only once the deposit is really saved.
+      if (reached) { celebrate(); notifyGoal(current.id, reached) }
       // Shared account: let the others know (best effort; never blocks saving).
       if (record.type === 'deposit' && current.members?.length > 1) notifyShared(record.id)
-      if (reached) notifyGoal(current.id, reached)
     })
-    showToast(reached
-      ? `🎉 Goal reached! ${current.name} passed your Br ${Math.round(reached).toLocaleString('en-US')} goal`
-      : `${label(txn)} added`)
+    if (reached && !current.cloud) celebrate()
+    else showToast(`${label(txn)} added`)
     return null
   }, [userId, today, setData, overdraftError, remote, showToast])
 

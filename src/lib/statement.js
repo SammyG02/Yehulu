@@ -685,6 +685,9 @@ export const readSource = (source) => {
   return file && from && to ? { file, from, to } : null
 }
 
+/** The booking date printed on the statement for a line (from its fingerprint), or null. */
+const bookedOn = (t) => /^y:[^:|]*:(\d{4}-\d\d-\d\d)\|/.exec(t.ref ?? '')?.[1] ?? /^y:(\d{4}-\d\d-\d\d)\|/.exec(t.ref ?? '')?.[1] ?? null
+
 /** The Yehulu account a statement line came from ('' for lines from before account tags), or null if not a statement line. */
 const lineAccount = (t) => {
   if (!t.ref?.startsWith('y:')) return null
@@ -703,7 +706,7 @@ export function importedPeriods(transactions) {
     if (acct == null) continue
     const src = readSource(t.source)
     // One entry per imported file; older imports (no file recorded) per account.
-    const key = src ? `file:${t.source}` : `acct:${acct}`
+    const key = src ? `file:${acct}:${t.source}` : `acct:${acct}`
     const p = by.get(key) ?? (src
       ? { accountNo: acct, source: t.source, file: src.file, from: src.from, to: src.to, lines: 0 }
       : { accountNo: acct, source: null, file: null, from: t.date, to: t.date, lines: 0 })
@@ -734,9 +737,11 @@ export function planRemoval({ existing, accountNo, from, to, source = null, rate
     ? [...new Set(existing.filter(t => t.source && t.source !== source && lineAccount(t) === accountNo).map(t => t.source))]
       .map(readSource).filter(Boolean)
     : []
-  const coveredElsewhere = (t) => others.some(o => t.date >= o.from && t.date <= o.to)
-  const target = existing.filter(t => lineAccount(t) === accountNo && inRange(t)
-    && (!source || (t.source === source && !coveredElsewhere(t))))
+  // A file's period is its statement's booking dates, so compare those (a
+  // line's own date can be a day off: value date / interest day).
+  const coveredElsewhere = (t) => others.some(o => (bookedOn(t) ?? t.date) >= o.from && (bookedOn(t) ?? t.date) <= o.to)
+  const target = existing.filter(t => lineAccount(t) === accountNo
+    && (source ? t.source === source && !coveredElsewhere(t) : inRange(t)))
   const kept = source ? existing.filter(t => t.source === source && !target.includes(t)).length : 0
   const openings = existing.filter(t => isOpening(t) && inRange(t) && (!source || t.source === source))
   const oldBridges = existing.filter(isBridge)

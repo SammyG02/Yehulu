@@ -5,7 +5,7 @@
 // records it so nobody hears about it twice.
 
 import { send } from '../_lib/app.js'
-import { sendToPhones } from '../_lib/push.js'
+import { forgetGone, readBody, sendToPhones } from '../_lib/push.js'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const PUBLIC_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -14,7 +14,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return send(res, 204, null)
   if (req.method !== 'POST') return send(res, 405, { error: 'Use POST.' })
   const token = /^Bearer\s+(\S+)$/.exec(req.headers.authorization ?? '')?.[1]
-  const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body ?? {}
+  const body = readBody(req)
+  if (!body) return send(res, 400, { error: 'Bad request.' })
   const txn = body.transaction_id
   if (!token || typeof txn !== 'string' || !/^[0-9a-f-]{36}$/i.test(txn)) return send(res, 400, { error: 'Missing sign-in or transaction.' })
 
@@ -26,6 +27,11 @@ export default async function handler(req, res) {
   if (!r.ok) return send(res, r.status === 401 ? 401 : 502, { error: 'Could not check that transaction.' })
   const who = await r.json()
   if (!who?.phones?.length) return send(res, 200, { sent: 0 })
-  const { sent } = await sendToPhones(who.phones, { title: who.title, body: who.body, url: who.url })
-  return send(res, 200, { sent })
+  try {
+    const { sent, gone } = await sendToPhones(who.phones, { title: who.title, body: who.body, url: who.url })
+    await forgetGone(gone)
+    return send(res, 200, { sent })
+  } catch (err) {
+    return send(res, 500, { error: `Couldn't send: ${err.message}` })
+  }
 }

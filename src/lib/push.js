@@ -31,6 +31,18 @@ export async function currentSubscription() {
 }
 
 /**
+ * Is this phone getting notifications for the person signed in now? The
+ * browser's subscription alone isn't enough: it may belong to someone who
+ * used this phone before. The database only shows people their own phones.
+ */
+export async function isOnForMe(supabase) {
+  const sub = await currentSubscription()
+  if (!sub) return false
+  const { data } = await supabase.from('push_subscriptions').select('endpoint').eq('endpoint', sub.endpoint).maybeSingle()
+  return Boolean(data)
+}
+
+/**
  * Asks for permission (must follow a tap) and saves this phone for the
  * signed-in person. Throws with a readable message if it can't.
  */
@@ -54,6 +66,9 @@ export async function enablePush(supabase) {
 export async function disablePush(supabase) {
   const sub = await currentSubscription()
   if (!sub) return
-  await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+  const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+  // Keep the phone subscribed if the database still has it, so turning off
+  // can be tried again (otherwise notifications would keep coming silently).
+  if (error) throw new Error(`Couldn't turn notifications off: ${error.message}`)
   await sub.unsubscribe().catch(() => {})
 }

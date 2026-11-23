@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { supabase } from '../lib/supabase.js'
+import { disablePush } from '../lib/push.js'
 import { AuthContext } from './contexts.js'
 
 // In the downloadable app, Google sign-in opens in the phone's browser (Google
@@ -123,6 +124,9 @@ export function AuthProvider({ children }) {
   /** Signs out of this account on this device only, and forgets it here. */
   const signOut = useCallback(async () => {
     const id = session?.user?.id
+    // This phone stops getting this person's notifications first (while still
+    // signed in, so the database lets us remove it).
+    await disablePush(supabase).catch(() => {})
     await supabase.auth.signOut({ scope: 'local' })
     if (id) updateSaved(prev => prev.filter(a => a.id !== id))
   }, [session?.user?.id, updateSaved])
@@ -131,6 +135,8 @@ export function AuthProvider({ children }) {
   const switchAccount = useCallback(async (id) => {
     const entry = saved.find(a => a.id === id)
     if (!entry) return
+    // The previous person's notifications stop on this phone.
+    await disablePush(supabase).catch(() => {})
     const { error } = await supabase.auth.setSession(entry.tokens)
     if (error) {
       updateSaved(prev => prev.filter(a => a.id !== id))

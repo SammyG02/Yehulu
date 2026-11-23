@@ -23,11 +23,13 @@ export function planNotifications(user, today) {
   const accounts = (user.accounts ?? []).map(a => {
     const rates = fractions(Array.isArray(a.my_rates) && a.my_rates.length ? a.my_rates : a.rates)
     const transactions = a.transactions.map(t => ({ type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee) }))
-    if (!transactions.length || !rates.length) return { ...a, balance: 0, week: 0 }
+    if (!transactions.length || !rates.length) return { ...a, balance: 0, week: 0, weekAgo: 0 }
     const ledger = simulateLedger({ transactions, rates, fromDate: today, endDate: today })
     const weekStart = addDays(today, -7)
     const week = ledger.filter(r => r.date >= weekStart && r.date < today).reduce((sum, r) => sum + r.interest, 0)
-    return { ...a, balance: summarize(ledger, today).balance, week }
+    // Balance at the end of the day a week ago (0 if the account is newer).
+    const weekAgo = ledger.find(r => r.date === addDays(today, -8))?.balance ?? 0
+    return { ...a, balance: summarize(ledger, today).balance, week, weekAgo }
   })
 
   // Weekly summary, on Sundays: this week's interest and today's balance.
@@ -48,8 +50,9 @@ export function planNotifications(user, today) {
   for (const a of accounts) {
     const target = Number(a.goal?.target) || 0
     const monthly = Number(a.goal?.monthly) || 0
-    // Goal reached: once per account and target.
-    if (on('goal') && target > 0 && a.balance >= target) {
+    // Goal reached: once per account and target, and only if it was crossed in
+    // the last week (not a goal passed long before notifications were on).
+    if (on('goal') && target > 0 && a.balance >= target && a.weekAgo < target) {
       add({
         kind: 'goal', key: `${a.id}:${target}`, url: '/growth',
         title: 'Goal reached 🎉',
