@@ -9,13 +9,14 @@ import { Card } from '../../components/ui/Card.jsx'
 import { inputClass } from '../../components/ui/Field.jsx'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
+import { nameTaken } from '../../lib/storage.js'
 import { useAccountBalances, useAccountTotals, useConfirm, useSavings } from '../../state/hooks.js'
 
 function RenameForm({ account, onDone }) {
   const { accounts, actions } = useSavings()
   const [name, setName] = useState(account.name)
   const trimmed = name.trim().slice(0, 40)
-  const taken = accounts.some(a => a.id !== account.id && a.name.toLowerCase() === trimmed.toLowerCase())
+  const taken = nameTaken(accounts, trimmed, account.id)
   const canSave = trimmed !== '' && trimmed !== account.name && !taken
 
   return (

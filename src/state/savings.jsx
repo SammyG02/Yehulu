@@ -2,13 +2,13 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import { useToday } from '../hooks/useToday.js'
 import { AuthContext, ConfirmContext, SavingsContext } from './contexts.js'
 import { cloudApi, fetchAccounts } from '../lib/cloud.js'
-import { planImport, planRemoval } from '../lib/statement.js'
+import { importChoices, planImport, planRemoval, statementAccounts } from '../lib/statement.js'
 import { planLink } from '../lib/linkMembers.js'
 import { toDateKey } from '../lib/dates.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn, simulateLedger, summarize } from '../lib/interest.js'
 import {
-  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, newId, memberRateList, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
+  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, nameTaken, newId, memberRateList, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
 } from '../lib/storage.js'
 import { supabase } from '../lib/supabase.js'
 
@@ -488,6 +488,11 @@ export function SavingsProvider({ children }) {
 
     if (into === 'new') {
       if (state.accounts.length >= MAX_ACCOUNTS) return { error: `You can have up to ${MAX_ACCOUNTS} accounts.` }
+      // Never a second copy of a Yehulu account, or of a name.
+      const accountNo = [...statementAccounts(records)][0] ?? null
+      const same = importChoices({ accounts: state.accounts, me: userId, accountNo, lines: records }).find(c => c.kind === 'same')
+      if (same) return { error: `This Yehulu account is already in ${state.accounts.find(a => a.id === same.id).name}. Choose it above.` }
+      if (nameTaken(state.accounts, name)) return { error: 'You already have an account with this name.' }
       const base = emptyAccount(today, { name, annualRate: rateList.at(-1)?.annualRate ?? 40 })
       const newRates = rateList.length ? sanitizeRates(rateList) : base.rates
       // Same steps as for an existing account, starting from nothing.

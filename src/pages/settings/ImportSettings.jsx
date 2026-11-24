@@ -7,9 +7,9 @@ import { Card } from '../../components/ui/Card.jsx'
 import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
 import { simulateLedger } from '../../lib/interest.js'
-import { buildImport, compareWithStatement, importedPeriods, planImport, planRemoval, readStatementPdf, statementAccounts } from '../../lib/statement.js'
-import { MAX_ACCOUNTS, memberRateList, ratesOf, toFraction } from '../../lib/storage.js'
-import { useConfirm, useSavings } from '../../state/hooks.js'
+import { buildImport, compareWithStatement, importChoices, importedPeriods, planImport, planRemoval, readStatementPdf, statementAccounts, suggestChoice } from '../../lib/statement.js'
+import { MAX_ACCOUNTS, memberRateList, nameTaken, ratesOf, toFraction } from '../../lib/storage.js'
+import { useAccountBalances, useConfirm, useSavings } from '../../state/hooks.js'
 
 const NEW = 'new'
 
@@ -108,18 +108,49 @@ const Line = ({ label, children }) => (
   </div>
 )
 
+/** One place the statement can go. */
+function Choice({ checked, onPick, title, detail, disabled = false }) {
+  return (
+    <label className={`flex items-center gap-3 rounded-xl border px-3 py-3 transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
+      disabled ? 'cursor-not-allowed border-line opacity-50'
+        : checked ? 'cursor-pointer border-brand bg-brand-soft' : 'cursor-pointer border-line hover:bg-sunken'}`}
+    >
+      <input type="radio" name="import-into" checked={checked} disabled={disabled} onChange={onPick} className="h-4 w-4 flex-shrink-0 accent-brand" />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold">{title}</span>
+        <span className="block text-xs text-muted">{detail}</span>
+      </span>
+    </label>
+  )
+}
+
 /** Step 2: what was found, the check against the statement, and where it goes. */
 function Review({ result, fileCount, onDone, onCancel }) {
-  const { accounts, account: open, me, today, actions } = useSavings()
-  // Accounts you may add to: yours, or shared ones (your own money, or anyone's if you own it).
-  const targets = accounts.filter(a => !a.cloud || a.role === 'owner' || a.role === 'member')
-  const [into, setInto] = useState(accounts.length < MAX_ACCOUNTS ? NEW : open.id)
+  const { accounts, me, today, actions } = useSavings()
+  const balances = useAccountBalances()
+  const choices = useMemo(
+    () => importChoices({ accounts, me, accountNo: result.accountNo, lines: result.transactions }),
+    [accounts, me, result],
+  )
+  const sameIn = choices.filter(c => c.kind === 'same')
+  const canAdd = accounts.length < MAX_ACCOUNTS
+  const canCreate = canAdd && sameIn.length === 0
+  // Your pick, else the suggestion (null: you have to choose).
+  const [picked, setPicked] = useState(null)
+  const into = (picked === NEW ? canCreate : choices.some(c => c.id === picked)) ? picked : suggestChoice(choices, accounts, canAdd)
+  const choice = choices.find(c => c.id === into)
   const shortNo = result.accountNo ? `••${result.accountNo.slice(-4)}` : ''
-  const [name, setName] = useState(`Yehulu ${shortNo}`.trim())
+  const [name, setName] = useState(() => {
+    const base = `Yehulu ${shortNo}`.trim()
+    let unused = base
+    for (let n = 2; nameTaken(accounts, unused); n++) unused = `${base} (${n})`
+    return unused
+  })
+  const nameError = into === NEW && nameTaken(accounts, name) ? 'You already have an account with this name' : null
   const target = accounts.find(a => a.id === into)
   const canPickMember = target?.cloud && target.role === 'owner' && target.members?.length > 1
   const [memberId, setMemberId] = useState(null)
-  const who = target?.cloud ? (canPickMember ? memberId ?? me : me) : null
+  const who = target?.cloud ? (canPickMember ? memberId ?? choice?.memberId ?? me : me) : null
   const [useRates, setUseRates] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -165,10 +196,30 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const missing = plan.bridges.filter(b => b.note.startsWith('Missing'))
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
+  const nothingNew = Boolean(target) && !refused && plan.add.length === 0 && plan.remove.length === 0
+  // Going somewhere else while another account already has these statements.
+  const twice = target && choice?.kind !== 'same' ? [...new Set(sameIn.map(c => accounts.find(a => a.id === c.id).name))] : []
+
+  // What each account shows under its name.
+  const details = useMemo(() => new Map(choices.map(c => {
+    const a = accounts.find(x => x.id === c.id)
+    const mine = a.transactions.filter(t => !a.cloud || t.memberId === c.memberId)
+    const owner = a.cloud && c.memberId !== me ? a.members?.find(m => m.id === c.memberId)?.name : null
+    const money = formatMoney(balances.get(c.id) ?? 0)
+    if (c.kind === 'other') return [c.id, `Has Yehulu ••${[...statementAccounts(mine)].map(n => n.slice(-4)).join(', ••')}, a different account`]
+    if (c.kind === 'empty') return [c.id, owner ? `${owner} · Empty` : 'Empty']
+    if (c.kind === 'open') return [c.id, `${owner ?? money} · ${mine.length} transaction${mine.length === 1 ? '' : 's'}`]
+    const dates = mine.filter(t => t.ref).map(t => t.date).sort()
+    return [c.id, `${owner ?? money} · has these statements, ${formatDate(dates[0])} – ${formatDate(dates.at(-1))}`]
+  })), [choices, accounts, balances, me])
+
+  const buttonText = !into ? 'Choose an account' : into === NEW ? `Add ${plan.add.length} to a new account`
+    : plan.add.length ? `Add ${plan.add.length} to ${target.name}` : `Update ${target.name}`
   const endMatches = Boolean(check && check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005)
 
   const doImport = () => {
     setError(null)
+    if (!into) return setError('Choose where it goes.')
     if (into === NEW && !name.trim()) return setError('Give the new account a name.')
     setBusy(true)
     const outcome = actions.importStatement({
@@ -177,7 +228,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
     })
     setBusy(false)
     if (outcome.error) return setError(outcome.error)
-    onDone(outcome)
+    onDone({ ...outcome, name: target?.name ?? name.trim() })
   }
 
   return (
@@ -190,6 +241,54 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <Line label="Withdrawals">{counts.withdrawals}{counts.noFee ? ` + ${counts.noFee} with no fee` : ''}</Line>
         <Line label="Balance on the statement">{formatMoney(result.closing)}</Line>
         <p className="py-2 text-xs text-muted">Interest and charges aren't copied: the app works them out, the same way Yehulu does.</p>
+      </Card>
+
+      <Card className="p-4 sm:p-5">
+        <fieldset className="space-y-2">
+          <legend className="mb-3 text-sm font-bold">Where should this go?</legend>
+          {choices.map(c => (
+            <Choice
+              key={c.id}
+              title={accounts.find(a => a.id === c.id).name}
+              detail={details.get(c.id)}
+              disabled={c.kind === 'other'}
+              checked={into === c.id}
+              onPick={() => { setPicked(c.id); setMemberId(null); setError(null) }}
+            />
+          ))}
+          {canCreate && (
+            <Choice title="New account" detail="Keep it separate" checked={into === NEW} onPick={() => { setPicked(NEW); setMemberId(null); setError(null) }} />
+          )}
+        </fieldset>
+        <div className="[&>*]:mt-3">
+          {into === NEW && (
+            <Field id="import-name" label="Name" error={nameError}>
+              <input id="import-name" type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+            </Field>
+          )}
+          {canPickMember && (
+            <Field id="import-member" label="Whose money">
+              <select id="import-member" value={who ?? ''} onChange={(e) => setMemberId(e.target.value)} className={inputClass}>
+                {target.members.map(m => <option key={m.id} value={m.id}>{m.id === me ? `You (${m.name})` : m.name}</option>)}
+              </select>
+            </Field>
+          )}
+          {sameIn.length > 1 && !into && (
+            <p className="text-xs text-accent">More than one account has this Yehulu account's statements. Choose one.</p>
+          )}
+          {twice.length > 0 && (
+            <p className="text-xs text-accent">{twice.join(' and ')} already {twice.length === 1 ? 'has' : 'have'} this Yehulu account's statements. Adding it here too counts the same money twice.</p>
+          )}
+          {nothingNew && (
+            <p className="flex gap-2 text-sm text-brand-ink">
+              <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              Everything here is already in {target.name}.
+            </p>
+          )}
+          {choice?.kind === 'same' && !nothingNew && plan.skipped > 0 && (
+            <p className="text-xs text-muted">{plan.skipped} already there, skipped.</p>
+          )}
+        </div>
       </Card>
 
       {others.length > 0 && (
@@ -284,7 +383,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
             <li key={r.from} className="rounded-lg bg-sunken px-2.5 py-1 text-xs"><span className="font-bold">{r.annualRate}%</span> from {formatDate(r.from)}</li>
           ))}
         </ul>
-        {into !== NEW && (
+        {target && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={useRates} onChange={(e) => setUseRates(e.target.checked)} className="h-4 w-4 accent-brand" />
             {target?.cloud && target.members?.length > 1 && who !== target.ownerId
@@ -294,7 +393,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
         )}
       </Card>
 
-      {check && <Card className="space-y-3 p-4 sm:p-5">
+      {into && check && <Card className="space-y-3 p-4 sm:p-5">
         <h3 className="text-sm font-bold">Check against the statement</h3>
         <p className={`flex gap-2 text-sm ${endMatches ? 'text-brand-ink' : 'text-accent'}`}>
           {endMatches ? <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />}
@@ -316,41 +415,17 @@ function Review({ result, fileCount, onDone, onCancel }) {
         )}
       </Card>}
 
-      <Card className="space-y-3 p-4 sm:p-5">
-        <h3 className="text-sm font-bold">Import into</h3>
-        <Field id="import-into" label="Account">
-          <select id="import-into" value={into} onChange={(e) => { setInto(e.target.value); setMemberId(null) }} className={inputClass}>
-            {accounts.length < MAX_ACCOUNTS && <option value={NEW}>A new account</option>}
-            {targets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </Field>
-        {into === NEW && (
-          <Field id="import-name" label="Name">
-            <input id="import-name" type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-          </Field>
-        )}
-        {canPickMember && (
-          <Field id="import-member" label="Whose money">
-            <select id="import-member" value={who ?? ''} onChange={(e) => setMemberId(e.target.value)} className={inputClass}>
-              {target.members.map(m => <option key={m.id} value={m.id}>{m.id === me ? `You (${m.name})` : m.name}</option>)}
-            </select>
-          </Field>
-        )}
-        {target && plan.skipped > 0 && (
-          <p className="text-xs text-muted">{plan.skipped} of these are already in {target.name} and will be skipped.</p>
-        )}
-      </Card>
-
       {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button onClick={doImport} disabled={busy || blocked || plan.add.length === 0}>
-          {(() => {
-            const n = plan.add.length
-            return `Import ${n} transaction${n === 1 ? '' : 's'}`
-          })()}
-        </Button>
-      </div>
+      {nothingNew ? (
+        <Button onClick={onCancel} className="w-full">Done</Button>
+      ) : (
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button onClick={doImport} disabled={busy || blocked || !into || Boolean(nameError) || (plan.add.length === 0 && plan.remove.length === 0)} className="min-w-0">
+            <span className="truncate">{buttonText}</span>
+          </Button>
+        </div>
+      )}
       {today < result.to && <p className="text-xs text-muted">This statement goes past today.</p>}
     </div>
   )
@@ -464,7 +539,7 @@ export default function ImportSettings() {
         <Card className="space-y-4 p-4 sm:p-5">
           <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink">
             <CircleCheck className="h-5 w-5" aria-hidden="true" />
-            {done.added} transaction{done.added === 1 ? '' : 's'} imported{done.skipped ? `, ${done.skipped} already there` : ''}.
+            {done.added} transaction{done.added === 1 ? '' : 's'} added to {done.name}{done.skipped ? `, ${done.skipped} already there` : ''}.
           </p>
           <div className="flex gap-2">
             <Button onClick={() => navigate('/')}>See it on Home</Button>

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildImport, compareWithStatement, mergeRates, parseStatementPages, planImport } from './statement.js'
+import { buildImport, compareWithStatement, importChoices, mergeRates, parseStatementPages, planImport, suggestChoice } from './statement.js'
 import { simulateLedger } from './interest.js'
 
 // Made-up statements laid out like a real Yehulu "Account Statement" PDF (the
@@ -644,4 +644,31 @@ test('two Yehulu accounts with the same file name are listed separately', async 
   const other = accA.transactions.map(t => ({ ...t, id: `o-${t.id}`, ref: t.ref?.replace('y:3000123456:', 'y:3000999999:') }))
   const list = importedPeriods([...accA.transactions, ...other])
   assert.deepEqual(list.map(p => p.accountNo).sort(), ['3000123456', '3000999999'])
+})
+
+// ---- where an import goes -------------------------------------------------------
+
+const LINES = [{ ref: 'y:111:a', legacyRefs: ['y:a', 'FT1:100'] }]
+const acct = (id, refs) => ({ id, name: id, transactions: refs.map(ref => ({ ref })) })
+const kinds = (accounts) => importChoices({ accounts, me: 'me', accountNo: '111', lines: LINES }).map(c => c.kind)
+
+test('finds the account that already has this Yehulu account', () => {
+  assert.deepEqual(kinds([acct('a', []), acct('b', [undefined]), acct('c', ['y:111:z']), acct('d', ['y:222:z'])]), ['empty', 'open', 'same', 'other'])
+  assert.deepEqual(kinds([acct('old', ['FT1:100']), acct('opening', ['opening-2026-01-01'])]), ['same', 'open'])
+})
+
+test('in a shared account the owner is matched to whoever has it; a member only to themselves', () => {
+  const shared = (role) => ({ id: 's', name: 's', cloud: true, role, members: [{ id: 'me' }, { id: 'abe' }], transactions: [{ memberId: 'abe', ref: 'y:111:z' }] })
+  const pick = (role) => importChoices({ accounts: [shared(role)], me: 'me', accountNo: '111', lines: LINES })[0]
+  assert.deepEqual([pick('owner').memberId, pick('owner').kind], ['abe', 'same'])
+  assert.deepEqual([pick('member').memberId, pick('member').kind], ['me', 'empty'])
+})
+
+test('starts on the matching account, asks when two match, and makes a new one only when none does', () => {
+  const start = (accounts, canAdd = true) => suggestChoice(importChoices({ accounts, me: 'me', accountNo: '111', lines: LINES }), accounts, canAdd)
+  assert.equal(start([acct('a', []), acct('b', ['y:111:z'])]), 'b')
+  assert.equal(start([acct('a', ['y:111:z']), acct('b', ['y:111:z'])]), null)
+  assert.equal(start([acct('a', [])]), 'a')
+  assert.equal(start([acct('a', [undefined])]), 'new')
+  assert.equal(start([acct('a', ['y:222:z'])], false), null)
 })

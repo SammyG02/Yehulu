@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { Check, ChevronDown, Plus, Settings2, Users, Wallet } from 'lucide-react'
 import { formatMoney } from '../../lib/format.js'
 import { periodOn } from '../../lib/interest.js'
-import { MAX_ACCOUNTS } from '../../lib/storage.js'
+import { MAX_ACCOUNTS, nameTaken } from '../../lib/storage.js'
 import { useAccountBalances, useAccountTotals, useSavings } from '../../state/hooks.js'
 import { Button } from '../ui/Button.jsx'
 import { AffixInput, Field, inputClass } from '../ui/Field.jsx'
@@ -21,7 +21,7 @@ export function NewAccountForm({ onCreated, onCancel }) {
 
   const trimmed = name.trim().slice(0, 40)
   const nameError = !trimmed ? 'Give it a name'
-    : accounts.some(a => a.name.toLowerCase() === trimmed.toLowerCase()) ? 'You already have an account with this name' : null
+    : nameTaken(accounts, trimmed) ? 'You already have an account with this name' : null
   // No default: each person's Yehulu rate is different, so they type their own.
   const rateError = String(annualRate).trim() === '' ? 'Enter your rate' : isPercent(annualRate) ? null : '0 to 100'
   const full = accounts.length >= MAX_ACCOUNTS

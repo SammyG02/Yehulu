@@ -19,6 +19,12 @@ export const EMPTY_GOAL = { target: null, monthly: 0 }
 export const FIRST_ACCOUNT_ID = 'main'
 export const MAX_ACCOUNTS = 20
 
+/** Is `name` already used by another of your accounts? (Other people's shared accounts don't count: you can't rename those.) */
+export const nameTaken = (accounts, name, exceptId = null) => {
+  const key = name.trim().toLowerCase()
+  return accounts.some(a => a.id !== exceptId && (!a.cloud || a.role === 'owner') && a.name.trim().toLowerCase() === key)
+}
+
 /** A saving account: its own name, rate history, goal and transactions. */
 export const emptyAccount = (today = toDateKey(new Date()), { id = newId(), name = DEFAULT_ACCOUNT_NAME, annualRate = DEFAULT_RATE.annualRate } = {}) => ({
   id,

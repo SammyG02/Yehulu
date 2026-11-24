@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  emptyAccount, emptyState, exportState, FIRST_ACCOUNT_ID, MAX_ACCOUNTS, migrate, parseBackup,
+  emptyAccount, emptyState, exportState, FIRST_ACCOUNT_ID, MAX_ACCOUNTS, migrate, nameTaken, parseBackup,
 } from './storage.js'
 
 const TODAY = '2026-11-19'
@@ -89,4 +89,11 @@ test('imported details survive saving: no-fee debits and the statement reference
   assert.equal(s.noFee, true)
   assert.equal(s.ref, 'FT1:-1000')
   assert.equal(d.noFee, undefined, 'deposits never have the flag')
+})
+
+test('a name can be used once among your own accounts', () => {
+  const list = [{ id: '1', name: 'Yehulu' }, { id: '2', name: 'Theirs', cloud: true, role: 'member' }]
+  assert.equal(nameTaken(list, ' yehulu '), true)
+  assert.equal(nameTaken(list, 'Yehulu', '1'), false)
+  assert.equal(nameTaken(list, 'Theirs'), false)
 })

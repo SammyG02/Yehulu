@@ -633,6 +633,43 @@ export function statementAccounts(transactions) {
 }
 
 /**
+ * Where a statement can go: every account you may add to, and whose money in
+ * it (`memberId`, null outside shared accounts). `kind`:
+ *   'same'  already has this Yehulu account's lines (by number, or by the
+ *           lines themselves for older imports)
+ *   'other' holds a different Yehulu account's statements: can't go here
+ *   'empty' / 'open'  nothing / only other entries in it
+ */
+export function importChoices({ accounts, me, accountNo, lines }) {
+  const isLine = (ref) => ref && !ref.startsWith('gap-') && !ref.startsWith('opening-')
+  const refs = new Set(lines.flatMap(t => (isLine(t.ref) ? [t.ref, ...(t.legacyRefs ?? [])] : [])))
+  const kindOf = (transactions) => {
+    const numbers = statementAccounts(transactions)
+    if (numbers.size) return accountNo && !numbers.has(accountNo) ? 'other' : 'same'
+    if (transactions.some(t => refs.has(t.ref))) return 'same'
+    return transactions.length ? 'open' : 'empty'
+  }
+  return accounts.filter(a => !a.cloud || a.role === 'owner' || a.role === 'member').map(account => {
+    if (!account.cloud) return { id: account.id, memberId: null, kind: kindOf(account.transactions) }
+    const everyone = account.role === 'owner' ? [me, ...(account.members ?? []).map(m => m.id).filter(id => id !== me)] : [me]
+    const people = everyone.map(memberId => ({ id: account.id, memberId, kind: kindOf(account.transactions.filter(t => t.memberId === memberId)) }))
+    return people.find(p => p.kind === 'same') ?? people.find(p => p.kind !== 'other') ?? people[0]
+  })
+}
+
+/**
+ * The account to start on: the one that already has this Yehulu account; with
+ * two of those, none (you choose). Otherwise your only account if it's empty,
+ * or 'new' while there's room.
+ */
+export function suggestChoice(choices, accounts, canAdd) {
+  const same = choices.filter(c => c.kind === 'same')
+  if (same.length) return same.length === 1 ? same[0].id : null
+  if (accounts.length === 1 && choices[0]?.kind === 'empty') return choices[0].id
+  return canAdd ? 'new' : null
+}
+
+/**
  * Compares the app's ledger with the statement, day by day. Returns
  * { matched, days, firstDifference: { date, app, yehulu } | null, end: { app, yehulu } }.
  */
