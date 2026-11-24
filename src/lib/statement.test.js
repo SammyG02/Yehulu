@@ -763,7 +763,7 @@ test('review 1: with only one ordinary day to go by, two late days still are not
   let real = ordinary(p, 100000, 1)
   p.line('Transfer Credit', 100007, D(4))
   real += p.interest(real, 40, D(2), D(4))
-  real += p.interest(real, 40, D(3), D(4))
+  p.interest(real, 40, D(3), D(4))
   const imp = p.read()
   assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }])
   assert.equal(dated(imp, 100007), D(4))
