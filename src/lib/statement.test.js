@@ -698,3 +698,297 @@ test("interest posted late doesn't include the next day's lines printed before i
     assert.deepEqual([cmp.matched, cmp.end.app], [cmp.days, bal / 100])
   }
 })
+
+// ---- interest posted late: code review findings --------------------------------
+
+const nextDay = (key, n = 1) => { const d = new Date(`${key}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+
+/** Prints statement lines one by one, keeping the running balance (cents). */
+const printer = (opening = 0) => {
+  const p = { rows: [], balance: opening }
+  p.line = (type, amount, book, value = book) => {
+    p.balance += amount
+    p.rows.push({ book, ref: `R${p.rows.length}`.padEnd(16, 'Q'), type, value, amount, balance: p.balance })
+  }
+  /** Interest for `day` on `closing`; returns what it adds. */
+  p.interest = (closing, rate, day, book = day) => {
+    const gross = Math.round((closing * rate) / 36500)
+    const charge = Math.round(gross / 10)
+    p.line('Interest - Capitalise', gross, book, nextDay(day))
+    p.line('Debit Arrangement', -charge, book, nextDay(day))
+    return gross - charge
+  }
+  /** Yehulu takes the interest of `day` back. */
+  p.reverse = (gross, day, book) => {
+    p.line('Debit Arrangement', Math.round(gross / 10), book, nextDay(day))
+    p.line('Interest - Capitalise', -gross, book, nextDay(day))
+  }
+  p.read = () => buildImport([parseStatementPages([page(p.rows)])])
+  return p
+}
+const D = (n) => nextDay('2026-03-01', n - 1)
+const dated = (imp, amount) => imp.transactions.find(t => t.amount === amount / 100).date
+/** Every day the statement shows, against the app's own maths over the import. */
+const appAgrees = (imp) => {
+  const cmp = compareWithStatement(simulateLedger({ transactions: imp.transactions, rates: pct(imp.rates), fromDate: imp.to, endDate: imp.to }), imp.expected)
+  assert.deepEqual([cmp.matched, cmp.firstDifference], [cmp.days, null])
+}
+/** `days` ordinary days at 40% from 1 March; returns the true balance after them. */
+const ordinary = (p, deposit, days) => {
+  p.line('Transfer Credit', deposit, D(1))
+  let real = deposit
+  for (let n = 1; n <= days; n++) real += p.interest(real, 40, D(n))
+  return real
+}
+
+test('review 1: a deposit printed before two late days is not read as a rate change, however small the balance', () => {
+  for (const deposit of [20000, 100000, 100000000]) {
+    const p = printer()
+    let real = ordinary(p, deposit, 4)
+    const big = deposit + 7
+    p.line('Transfer Credit', big, D(7))
+    real += p.interest(real, 40, D(5), D(7))
+    real += p.interest(real, 40, D(6), D(7))
+    real += big
+    for (let n = 7; n <= 10; n++) real += p.interest(real, 40, D(n))
+    const imp = p.read()
+    assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }])
+    assert.equal(dated(imp, big), D(7))
+    appAgrees(imp)
+  }
+})
+
+test('review 1: with only one ordinary day to go by, two late days still are not a rate', () => {
+  const p = printer()
+  let real = ordinary(p, 100000, 1)
+  p.line('Transfer Credit', 100007, D(4))
+  real += p.interest(real, 40, D(2), D(4))
+  real += p.interest(real, 40, D(3), D(4))
+  const imp = p.read()
+  assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }])
+  assert.equal(dated(imp, 100007), D(4))
+})
+
+test('review 1: what cannot be explained changes nothing: dates stay, no rate is made up, the difference shows', () => {
+  const p = printer()
+  const real = ordinary(p, 10000000, 5)
+  p.line('Transfer Credit', 10000007, D(8))
+  // Two days at a figure neither balance gives.
+  for (const n of [6, 7]) { p.line('Interest - Capitalise', Math.round(real * 13 / 36500), D(8), D(n + 1)); p.line('Debit Arrangement', -Math.round(real * 13 / 365000), D(8), D(n + 1)) }
+  for (let n = 8; n <= 11; n++) p.interest(p.balance, 40, D(n))
+  const imp = p.read()
+  assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }])
+  assert.equal(dated(imp, 10000007), D(6))
+})
+
+test('a real rate change is still found, from its first day, when that day has a deposit dated the day after', () => {
+  const p = printer()
+  let real = ordinary(p, 10000000, 5)
+  p.line('Transfer Credit', 300007, D(6), D(7)) // counted on the 6th, value date the 7th
+  real += 300007
+  for (let n = 6; n <= 10; n++) real += p.interest(real, 35, D(n))
+  const imp = p.read()
+  assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }, { from: D(6), annualRate: 35 }])
+  assert.equal(dated(imp, 300007), D(6))
+  appAgrees(imp)
+})
+
+test('a late day right where the rate changes', () => {
+  for (const rate of [40, 35]) { // the late day's own rate: the old or the new
+    const p = printer()
+    let real = ordinary(p, 10000000, 5)
+    p.line('Transfer Credit', 300007, D(7))
+    real += p.interest(real, rate, D(6), D(7))
+    real += 300007
+    for (let n = 7; n <= 10; n++) real += p.interest(real, 35, D(n))
+    const imp = p.read()
+    assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }, { from: D(rate === 40 ? 7 : 6), annualRate: 35 }])
+    assert.equal(dated(imp, 300007), D(7))
+    appAgrees(imp)
+  }
+})
+
+test('review 3: lines before a late day in any order', () => {
+  const moves = [['Transfer Credit', 300007, D(7)], ['Transfer Credit', 200003, D(6)], ['Transfer Credit', 100009, D(8)]]
+  for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+    const p = printer()
+    let real = ordinary(p, 10000000, 5)
+    for (const k of order) p.line(moves[k][0], moves[k][1], D(8), moves[k][2])
+    for (const [n, amount] of [[6, 200003], [7, 300007], [8, 100009]]) {
+      real += amount
+      real += p.interest(real, 40, D(n), D(8))
+    }
+    for (let n = 9; n <= 11; n++) real += p.interest(real, 40, D(n))
+    const imp = p.read()
+    assert.deepEqual(moves.map(([, amount]) => dated(imp, amount)), [D(7), D(6), D(8)], `printed in order ${order}`)
+    appAgrees(imp)
+  }
+})
+
+test('review 4: a reversal between the lines and the recalculated interest', () => {
+  for (const newRate of [40, 35]) {
+    const p = printer()
+    let real = ordinary(p, 10000000, 4)
+    p.line('Cash Withdrawal', -100200, D(6))
+    const wrong = Math.round(real * 41 / 36500)
+    p.line('Interest - Capitalise', wrong, D(6), D(6)); p.line('Debit Arrangement', -Math.round(wrong / 10), D(6), D(6))
+    p.reverse(wrong, D(5), D(6))
+    real += p.interest(real, newRate, D(5), D(6))
+    real -= 100200
+    for (let n = 6; n <= 10; n++) real += p.interest(real, newRate, D(n))
+    const imp = p.read()
+    assert.equal(dated(imp, 100000), D(6))
+    appAgrees(imp)
+  }
+})
+
+test('review 4: several days taken back and recalculated, with money moved on each', () => {
+  const p = printer()
+  let real = ordinary(p, 10000000, 4)
+  const start = real
+  const gross = []
+  for (const [n, amount] of [[5, 100003], [6, 200009], [7, 300001]]) {
+    p.line('Transfer Credit', amount, D(n))
+    real += amount
+    gross.push(Math.round(real * 40 / 36500))
+    real += p.interest(real, 40, D(n))
+  }
+  for (const n of [7, 6, 5]) p.reverse(gross[n - 5], D(n), D(8))
+  real = start
+  for (const [n, amount] of [[5, 100003], [6, 200009], [7, 300001]]) { real += amount; real += p.interest(real, 35, D(n), D(8)) }
+  for (let n = 8; n <= 12; n++) real += p.interest(real, 35, D(n))
+  const imp = p.read()
+  assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }, { from: D(5), annualRate: 35 }])
+  assert.deepEqual([100003, 200009, 300001].map(a => dated(imp, a)), [D(5), D(6), D(7)])
+  appAgrees(imp)
+})
+
+test('review 5: the first interest after a missing statement uses its own balance', () => {
+  const p = printer()
+  let real = ordinary(p, 10000000, 5)
+  const q = printer(real + 5000000)
+  real += 5000000
+  for (let n = 20; n <= 25; n++) real += q.interest(real, 35, D(n))
+  const imp = buildImport([parseStatementPages([page(p.rows)]), parseStatementPages([page(q.rows)])])
+  assert.equal(imp.gaps.length, 1)
+  assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }, { from: D(20), annualRate: 35 }])
+})
+
+/** A statement with one late day, and what the app stored for it before this was understood. */
+const lateStatement = ({ from = 1 } = {}) => {
+  const p = printer()
+  let real = ordinary(p, 213067866, 5)
+  const cut = p.rows.length
+  const before = p.balance
+  p.line('Standing Order', -1000, D(7)); p.line('Standing Order', -1000, D(7))
+  real += p.interest(real, 40, D(6), D(7))
+  real -= 2000
+  for (let n = 7; n <= 12; n++) real += p.interest(real, 40, D(n))
+  const read = (rows) => parseStatementPages([page(rows)])
+  return { whole: read(p.rows), early: read(p.rows.slice(0, cut)), rest: from === 1 ? null : read(p.rows.slice(cut)), before, real }
+}
+const asStoredBefore = (account) => ({ ...account, transactions: account.transactions.map(t => (t.noFee && t.date === D(7) && t.type === 'withdrawal' ? { ...t, date: D(6) } : t)) })
+const applyMoves = (a) => ({ ...a, transactions: a.transactions.map(t => ({ ...t, date: a.plan.moved.find(m => m.id === t.id)?.date ?? t.date })) })
+
+test('review 2: importing again puts right the dates an earlier version stored', () => {
+  const { whole, real } = lateStatement()
+  const right = importInto(empty, [whole])
+  assert.deepEqual(right.plan.moved, [])
+  const old = asStoredBefore(right)
+  assert.notEqual(balanceOn(old, D(12)), real / 100, 'it was wrong before')
+  const again = applyMoves(importInto(old, [whole]))
+  assert.equal(again.plan.moved.length, 2)
+  assert.deepEqual([again.plan.add, again.plan.remove], [[], []], 'no bridge, nothing added twice')
+  assert.equal(balanceOn(again, D(12)), real / 100)
+  assert.deepEqual(importInto(again, [whole]).plan.moved, [], 'done once')
+  assert.ok(right.transactions.every(t => !('oldDate' in t) && !('legacyRefs' in t)), 'working notes are not stored')
+})
+
+test('review 2: no false bridge when the late day is the first of the statement', () => {
+  const { early, rest } = lateStatement({ from: 2 })
+  // `rest` starts with the late day, so it is read with the one before it.
+  const right = importInto(empty, [early, rest])
+  const again = applyMoves(importInto(asStoredBefore(right), [early, rest]))
+  assert.equal(again.plan.moved.length, 2)
+  assert.deepEqual(again.transactions.filter(t => t.ref?.startsWith('gap-')), [])
+  // A bridge an earlier version left there goes too, whichever file is imported again.
+  const bridged = asStoredBefore(right)
+  bridged.transactions = [...bridged.transactions, { id: 'b', type: 'withdrawal', amount: 20, date: D(7), noFee: true, ref: `gap-${D(6)}:-20`, note: 'Missing statement (until it is imported)' }]
+  const { whole } = lateStatement()
+  const fixed = applyMoves(importInto(bridged, [whole]))
+  assert.deepEqual(fixed.transactions.filter(t => t.ref?.startsWith('gap-')), [])
+})
+
+test('review 2: a date you changed yourself is left alone', () => {
+  const { whole } = lateStatement()
+  const right = importInto(empty, [whole])
+  const mine = { ...right, transactions: right.transactions.map(t => (t.noFee ? { ...t, date: D(9) } : t)) }
+  assert.deepEqual(importInto(mine, [whole]).plan.moved, [])
+})
+
+test('made-up statements by the hundred: late days, mixed order, corrections, small and large balances', () => {
+  let seed = 7
+  const rnd = () => { // mulberry32
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const pick = (list) => list[Math.floor(rnd() * list.length)]
+  for (let run = 0; run < 150; run++) {
+    const p = printer()
+    let rate = pick([2, 7, 20, 35, 40, 50])
+    const unit = pick([20000, 300000, 5000000, 200000000])
+    let real = unit + Math.floor(rnd() * unit)
+    p.line('Transfer Credit', real, D(1))
+    const truth = [] // [cents moved, day]
+    let n = 1
+    const used = new Set() // each amount once, so a line can be told by it
+    const amount = () => { for (;;) { const a = Math.floor(unit * (rnd() < 0.2 ? 0.02 : 0.2 + rnd())) + 11 + Math.floor(rnd() * 500); if (!used.has(a)) { used.add(a); return a } } }
+    while (n <= 45) {
+      const kind = rnd()
+      if (n > 5 && n < 38 && kind < 0.12) {
+        // 1 or 2 late days, printed after money of the days up to then (any order).
+        const days = pick([1, 2])
+        const money = []
+        for (let d = 0; d <= days; d++) if (d === days || rnd() < 0.4) money.push([amount(), n + d])
+        money.sort(() => rnd() - 0.5)
+        for (const [a, d] of money) { p.line('Transfer Credit', a, D(n + days), D(d)); truth.push([a, D(d), rate]) }
+        for (let d = 0; d < days; d++) {
+          for (const [a, m] of money) if (m === n + d) real += a
+          real += p.interest(real, rate, D(n + d), D(n + days))
+        }
+        for (const [a, m] of money) if (m === n + days) real += a
+        n += days
+        real += p.interest(real, rate, D(n)); n++
+      } else if (n > 5 && n < 38 && kind < 0.17) {
+        // Two days credited, then taken back and recalculated at a new rate.
+        const start = real
+        const gross = []
+        const money = [amount(), amount()]
+        for (let d = 0; d < 2; d++) {
+          p.line('Transfer Credit', money[d], D(n + d)); truth.push([money[d], D(n + d), 2])
+          real += money[d]; gross.push(Math.round(real * rate / 36500)); real += p.interest(real, rate, D(n + d))
+        }
+        rate = pick([2, 7, 20, 35, 40, 50])
+        for (const d of [1, 0]) p.reverse(gross[d], D(n + d), D(n + 2))
+        real = start
+        for (let d = 0; d < 2; d++) { real += money[d]; real += p.interest(real, rate, D(n + d), D(n + 2)) }
+        n += 2
+        for (let d = 0; d < 3; d++, n++) real += p.interest(real, rate, D(n))
+      } else {
+        if (rnd() < 0.25) { const a = amount(); p.line('Transfer Credit', a, D(n)); truth.push([a, D(n), rate]); real += a }
+        real += p.interest(real, rate, D(n)); n++
+      }
+    }
+    assert.equal(p.balance, real)
+    const imp = p.read()
+    assert.equal(imp.expected.get(D(n - 1)), real / 100, `run ${run}: final balance`)
+    appAgrees(imp)
+    const got = new Map(imp.transactions.map(t => [Math.round(t.amount * 100), t.date]))
+    for (const [a, day, r] of truth) {
+      // A day's interest on it must be more than rounding to tell the day at all.
+      if (a * r / 36500 > 2) assert.equal(got.get(a), day, `run ${run}: ${a}`)
+    }
+  }
+})

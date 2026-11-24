@@ -181,10 +181,11 @@ function Review({ result, fileCount, onDone, onCancel }) {
       })
     } catch (err) {
       // e.g. another Yehulu account's statement: nothing to preview, import blocked.
-      return { plan: { add: [], remove: [], rates: null, skipped: 0, matched: [], unmatchedOwn: [], bridges: [] }, check: null, refused: err.message }
+      return { plan: { add: [], remove: [], moved: [], rates: null, skipped: 0, matched: [], unmatchedOwn: [], bridges: [] }, check: null, refused: err.message }
     }
     const gone = new Set(plan.remove)
-    const after = [...existing.filter(t => !gone.has(t.id)), ...plan.add]
+    const newDates = new Map(plan.moved.map(m => [m.id, m.date]))
+    const after = [...existing.filter(t => !gone.has(t.id)).map(t => (newDates.has(t.id) ? { ...t, date: newDates.get(t.id) } : t)), ...plan.add]
     const rates = (plan.rates ?? current).map(toFraction)
     const check = compareWithStatement(simulateLedger({ transactions: after, rates, fromDate: result.to, endDate: result.to }), result.expected)
     return { plan, check }
@@ -196,7 +197,8 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const missing = plan.bridges.filter(b => b.note.startsWith('Missing'))
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
-  const nothingNew = Boolean(target) && !refused && plan.add.length === 0 && plan.remove.length === 0
+  const changes = plan.add.length + plan.remove.length + plan.moved.length > 0
+  const nothingNew = Boolean(target) && !refused && !changes
   // Going somewhere else while another account already has these statements.
   const twice = target && choice?.kind !== 'same' ? [...new Set(sameIn.map(c => accounts.find(a => a.id === c.id).name))] : []
 
@@ -369,6 +371,12 @@ function Review({ result, fileCount, onDone, onCancel }) {
           </span>
         </p>
       )}
+      {plan.moved.length > 0 && (
+        <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
+          <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          Corrects the date of {plan.moved.length} line{plan.moved.length === 1 ? '' : 's'} imported earlier, to match the statement.
+        </p>
+      )}
       {replacing > 0 && (
         <p className="flex gap-2 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
           <CircleCheck className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
@@ -406,6 +414,11 @@ function Review({ result, fileCount, onDone, onCancel }) {
             </span>
           </span>
         </p>
+        {Math.abs(result.closing - check.end.yehulu) >= 0.005 && (
+          <p className="text-xs text-muted">
+            The statement ends at {formatMoney(result.closing)}: that also counts money moved after {formatDate(check.end.date)}, the last day with interest.
+          </p>
+        )}
         {firstCredit && (
           <p className="text-xs text-muted">
             Yehulu's first credit was {formatMoney(firstCredit.amount)} {firstCredit.type === 'deposit' ? 'more' : 'less'} than its
@@ -421,7 +434,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
       ) : (
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={doImport} disabled={busy || blocked || !into || Boolean(nameError) || (plan.add.length === 0 && plan.remove.length === 0)} className="min-w-0">
+          <Button onClick={doImport} disabled={busy || blocked || !into || Boolean(nameError) || !changes} className="min-w-0">
             <span className="truncate">{buttonText}</span>
           </Button>
         </div>
@@ -539,7 +552,7 @@ export default function ImportSettings() {
         <Card className="space-y-4 p-4 sm:p-5">
           <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink">
             <CircleCheck className="h-5 w-5" aria-hidden="true" />
-            {done.added} transaction{done.added === 1 ? '' : 's'} added to {done.name}{done.skipped ? `, ${done.skipped} already there` : ''}.
+            {done.added} transaction{done.added === 1 ? '' : 's'} added to {done.name}{done.skipped ? `, ${done.skipped} already there` : ''}{done.corrected ? `, ${done.corrected} date${done.corrected === 1 ? '' : 's'} corrected` : ''}.
           </p>
           <div className="flex gap-2">
             <Button onClick={() => navigate('/')}>See it on Home</Button>

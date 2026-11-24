@@ -272,14 +272,14 @@ const withoutFee = (totalCents) => {
  * rounded to the santim, so each line pins the rate to a narrow range. Runs of
  * days with a common rate become one period, from the day it first applied.
  */
-function findRates(lines) {
+function findRates(lines, minDays = 2) {
   const periods = []
   let lo = 0
   let hi = Infinity
   let start = null
   let days = 0
   const close = () => {
-    if (start && days >= 2) {
+    if (start && days >= minDays) {
       // The roundest rate that fits: whole percent, then halves, quarters, cents.
       const nice = [1, 2, 4, 100].map(step => Math.ceil(lo * step - 1e-9) / step).find(r => r <= hi + 1e-9) ?? round2((lo + hi) / 2)
       const last = periods.at(-1)
@@ -302,36 +302,63 @@ function findRates(lines) {
   return periods
 }
 
+// How far ahead of an interest's day a line may be dated and still have been
+// printed before it (late interest, or a month recalculated at a new rate).
+const MAX_LATE_DAYS = 45
+
 /**
- * Interest lines posted late: Map(row index -> indexes of the lines printed
- * before it that it doesn't include). A line is only left out if its value
- * date is after the interest's day, the balance with it doesn't give the
- * printed interest at the statement's rate, and the balance without it does.
+ * Interest lines posted late: printed after later days' deposits and
+ * withdrawals, but worked out without them. Returns
+ *   left: Map(interest row -> rows printed before it that it doesn't include)
+ *   unclear: interest rows that fit neither with nor without those rows
+ *
+ * A row is only left out if it's dated after the interest's day and the balance
+ * without it gives the printed interest. If it fits both ways (a sum too small
+ * to tell), the row's own value date decides.
+ * The rates to check with come only from days with no such rows before them,
+ * the nearest on each side: a day in doubt never decides its own rate.
  */
 function lateInterest(rows, dayOf) {
-  const periods = findRates([...dayOf].map(([i, day]) => ({ day, interest: rows[i].amount, base: rows[i].balance - rows[i].amount })))
+  const isMove = (r) => r.type !== INTEREST && r.type !== CHARGE
+  const isAhead = (j, day) => rows[j].valueDate > day && rows[j].valueDate <= addDays(day, MAX_LATE_DAYS)
+  const printed = (i) => rows[i].balance - rows[i].amount
+  const moves = rows.map((r, j) => j).filter(j => isMove(rows[j]))
+
+  // Days with nothing in doubt, each with its rate.
+  const clean = [...dayOf]
+    .filter(([i, day]) => !moves.some(j => j < i && isAhead(j, day)))
+    .map(([i, day]) => ({ day, interest: rows[i].amount, base: printed(i) }))
+  let periods = findRates(clean)
+  if (!periods.length) periods = findRates(clean, 1)
+  const rateOn = (day) => (periods.findLast(p => p.from <= day) ?? periods[0])?.annualRate
   const ratesNear = (day) => {
-    const at = periods.findLastIndex(p => p.from <= day)
-    return [periods[at], periods[at + 1]].filter(Boolean).map(p => p.annualRate)
+    const near = [clean.findLast(c => c.day < day), clean.find(c => c.day > day)]
+    return [...new Set(near.filter(Boolean).map(c => rateOn(c.day)).filter(r => r != null))]
   }
-  const late = new Map()
-  let carried = [] // left out by the line before; may not be in this one either
+
+  const left = new Map()
+  const unclear = new Set()
+  let pending = [] // moves printed so far that no interest includes yet
+  let nextMove = 0
   for (const [i, day] of dayOf) {
-    const here = []
-    for (let j = i - 1; j >= 0 && rows[j].type !== INTEREST && rows[j].type !== CHARGE; j--) here.unshift(j)
-    const pending = [...carried, ...here]
-    const printed = rows[i].balance - rows[i].amount
-    const fits = (base) => ratesNear(day).some(rate => Math.round((base * rate) / 36500) === rows[i].amount)
-    carried = []
-    if (!fits(printed)) {
-      let base = printed
-      for (let k = pending.length - 1; k >= 0 && rows[pending[k]].valueDate > day; k--) {
-        base -= rows[pending[k]].amount
-        if (fits(base)) { carried = pending.slice(k); late.set(i, carried); break }
-      }
+    while (nextMove < moves.length && moves[nextMove] < i) pending.push(moves[nextMove++])
+    const ahead = pending.filter(j => isAhead(j, day))
+    const rates = ahead.length ? ratesNear(day) : []
+    pending = []
+    if (!rates.length) continue
+    const fits = (out) => {
+      const base = out.reduce((sum, j) => sum - rows[j].amount, printed(i))
+      return rates.some(rate => Math.round((base * rate) / 36500) === rows[i].amount)
     }
+    // As their value dates say; then with everything; then without only the
+    // later ones (by date, then by the order they're printed in).
+    const byDate = [...new Set(ahead.map(j => rows[j].valueDate))].sort().map(v => ahead.filter(j => rows[j].valueDate > v))
+    const byOrder = ahead.map((_, k) => ahead.slice(k + 1))
+    const out = [ahead, [], ...byDate, ...byOrder].find(fits)
+    if (!out) unclear.add(i)
+    else if (out.length) { left.set(i, out); pending = [...out] }
   }
-  return late
+  return { left, unclear }
 }
 
 /**
@@ -406,13 +433,15 @@ export function buildImport(statements) {
   }
   // Sometimes a day's interest is posted late, printed after the next day's
   // deposits and withdrawals but worked out without them. The amount tells:
-  // if it only fits the balance before those lines, they count from later.
-  const late = lateInterest(rows, dayOf)
+  // lines it doesn't include count from the next interest that does (or their
+  // value date, if that's first).
+  const { left: late, unclear } = lateInterest(rows, dayOf)
+  const firstReading = [...nextInterestDay]
   for (const [i, left] of late) {
     const next = [...dayOf].find(([k]) => k > i)?.[1] ?? null
     for (const j of left) nextInterestDay[j] = next
   }
-  const dateOf = (r, i) => (nextInterestDay[i] && nextInterestDay[i] < r.valueDate ? nextInterestDay[i] : r.valueDate)
+  const dateOf = (r, i, nextInterestDay) => (nextInterestDay[i] && nextInterestDay[i] < r.valueDate ? nextInterestDay[i] : r.valueDate)
 
   const accountTag = (first => first?.accountNo ?? '')(sorted[0])
   const transactions = []
@@ -426,13 +455,12 @@ export function buildImport(statements) {
   }
   let balance = first.opening
   rows.forEach((r, i) => {
-    const prevBalance = balance
     balance = r.balance
     if (r.type === INTEREST) {
       if (!dayOf.has(i)) return
       // The interest is on the balance just before it (that day's closing).
       const after = (late.get(i) ?? []).reduce((sum, j) => sum + rows[j].amount, 0)
-      interestLines.push({ day: dayOf.get(i), interest: r.amount, base: prevBalance - after })
+      interestLines.push({ day: dayOf.get(i), interest: r.amount, base: r.balance - r.amount - after, unclear: unclear.has(i) })
       const charge = rows[i + 1]?.type === CHARGE ? rows[i + 1] : null
       expected.set(dayOf.get(i), ((charge ? charge.balance : r.balance) - after) / 100)
       return
@@ -443,21 +471,28 @@ export function buildImport(statements) {
     // Which Yehulu account it came from, plus the line's fingerprint.
     const ref = fitRef(`y:${accountTag}:${r.key}`)
     const legacyRefs = [`y:${r.key}`, `${r.ref || r.bookDate}:${r.amount}`]
-    const date = dateOf(r, i)
+    const date = dateOf(r, i, nextInterestDay)
+    // What earlier versions of the app stored, to put it right (planImport).
+    const oldDate = dateOf(r, i, firstReading)
+    const was = oldDate === date ? {} : { oldDate }
     const note = r.type.slice(0, 60)
     if (r.amount > 0) {
-      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRefs, noFee: false, source: r.source })
+      transactions.push({ type: 'deposit', amount: r.amount / 100, date, note, ref, legacyRefs, ...was, noFee: false, source: r.source })
       return
     }
     const total = -r.amount
     const base = NO_FEE.test(r.type) ? null : withoutFee(total)
     transactions.push(base == null
-      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRefs, noFee: true, source: r.source }
-      : { type: 'withdrawal', amount: base, date, note, ref, legacyRefs, noFee: false, source: r.source })
+      ? { type: 'withdrawal', amount: total / 100, date, note, ref, legacyRefs, ...was, noFee: true, source: r.source }
+      : { type: 'withdrawal', amount: base, date, note, ref, legacyRefs, ...was, noFee: false, source: r.source })
   })
 
   const from = transactions.map(t => t.date).sort()[0] ?? rows[0].bookDate
-  const rates = findRates(interestLines)
+  // A day that couldn't be explained says nothing about the rate.
+  const sure = interestLines.filter(l => !l.unclear)
+  let rates = findRates(sure)
+  if (!rates.length && sure.length < interestLines.length) rates = findRates(sure, 1)
+  if (!rates.length) rates = findRates(interestLines)
   // The first rate also covers everything before it.
   if (rates.length) rates[0] = { ...rates[0], from }
   // Fixed points: Yehulu's balance at the end of each statement's first day.
@@ -470,6 +505,12 @@ export function buildImport(statements) {
     // `start`: where that statement begins, to tell a missing statement (history
     // before it) from an odd first credit (nothing before it).
     if (!anchors.some(a => a.date === day)) anchors.push({ date: day, value: expected.get(day), start: rows[start].bookDate })
+  }
+  // A late day's balance may have been stored wrongly as a fixed point before:
+  // these only correct one that's there.
+  for (const i of late.keys()) {
+    const day = dayOf.get(i)
+    if (!anchors.some(a => a.date === day)) anchors.push({ date: day, value: expected.get(day), onlyCorrects: true })
   }
   return {
     accountNo: first.accountNo,
@@ -554,7 +595,8 @@ export function bridgesFor(transactions, anchors, rates) {
  *   currentRates / foundRates: [{ from, annualRate, serviceCharge }] (percent)
  *   useRates: put the found rates into the history (for the statements' days)
  *   period: { from, to } of the statements; newId: ids for new bridges
- * Returns { add, remove (ids), rates (new history, or null), skipped, bridges }.
+ * Returns { add, remove (ids), moved ([{ id, date }]: corrected dates), rates (new
+ * history, or null), skipped, bridges }.
  *
  * Statements can come in any order and with gaps: each import recomputes the
  * bridges from every anchor, so a missing statement is carried over until it
@@ -577,13 +619,23 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
   // Anchors the account already has, read back from its bridges (and from
   // statement opening balances) as things stand now.
   const oldBridges = existing.filter(isBridge)
-  const real = existing.filter(t => !isBridge(t))
+  // Lines an earlier version dated wrongly (interest posted late): put right,
+  // unless the date isn't the one it gave (you changed it yourself).
+  const byRef = new Map(existing.filter(t => t.ref).map(t => [t.ref, t]))
+  const moved = []
+  for (const line of lines) {
+    if (!line.oldDate) continue
+    const stored = [line.ref, ...(line.legacyRefs ?? [])].map(r => byRef.get(r)).find(Boolean)
+    if (stored && stored.date === line.oldDate) moved.push({ id: stored.id, date: line.date })
+  }
+  const newDate = new Map(moved.map(m => [m.id, m.date]))
+  const real = existing.filter(t => !isBridge(t)).map(t => (newDate.has(t.id) ? { ...t, date: newDate.get(t.id) } : t))
   const known = new Set(real.map(t => t.ref).filter(Boolean))
   // Lines imported by an earlier version of the app carry the older reference.
   // Lines imported by earlier versions of the app carry older references.
   const fresh = lines
     .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRefs ?? []).some(r => known.has(r)))
-    .map(({ legacyRefs: _legacy, ...t }) => t)
+    .map(({ legacyRefs: _legacy, oldDate: _old, ...t }) => t)
 
   // Money you entered yourself (no statement reference) that is the same as a
   // statement line: same kind, same amount, within 3 days. It's already
@@ -622,7 +674,11 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
 
   // Newest knowledge wins: the statements being imported, then the account's.
   const byDate = new Map()
-  for (const a of [...oldAnchors, ...openingAnchors, ...anchors]) byDate.set(a.date, a)
+  for (const a of [...oldAnchors, ...openingAnchors]) byDate.set(a.date, a)
+  for (const { onlyCorrects, ...a } of anchors) {
+    if (!onlyCorrects) byDate.set(a.date, a)
+    else if (byDate.has(a.date)) byDate.set(a.date, { ...byDate.get(a.date), ...a })
+  }
   const bridges = bridgesFor(base, [...byDate.values()], after)
 
   // Keep bridges that didn't change, so nothing moves needlessly.
@@ -634,6 +690,7 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
     add: [...addedKept, ...newBridges],
     remove: [...oldBridges.filter(o => !keep.has(o.id)).map(o => o.id), ...existing.filter(t => dropped.has(t.id)).map(t => t.id)],
     rates,
+    moved,
     skipped: lines.length - addedKept.length - matched.length,
     matched,
     unmatchedOwn,

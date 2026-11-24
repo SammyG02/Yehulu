@@ -544,17 +544,25 @@ export function SavingsProvider({ children }) {
     // balance once earlier history arrives, is replaced.
     const filled = new Set(plan.remove)
     const skipped = plan.skipped
+    const newDates = new Map(plan.moved.map(m => [m.id, m.date]))
+    const corrected = target.transactions.filter(t => newDates.has(t.id)).map(t => ({ ...t, date: newDates.get(t.id) }))
     const fresh = plan.add.map(t => (target.cloud ? { ...t, memberId: who } : t))
     const memberRates = plan.rates && ownRates ? sanitizeRates(plan.rates) : null
     const accountRates = plan.rates && !ownRates ? sanitizeRates(plan.rates) : null
     setData(d => withAccount(d, a => ({
       ...a,
-      transactions: [...a.transactions.filter(t => !filled.has(t.id)), ...fresh],
+      transactions: [
+        ...a.transactions.filter(t => !filled.has(t.id)).map(t => (newDates.has(t.id) ? { ...t, date: newDates.get(t.id) } : t)),
+        ...fresh,
+      ],
       ...(accountRates ? { rates: accountRates } : {}),
       ...(memberRates ? { members: a.members.map(m => (m.id === who ? { ...m, rates: memberRates } : m)) } : {}),
     }), into))
     if (target.cloud) {
       remote(async () => {
+        // Corrected dates first: if this stops halfway, importing again
+        // finishes the job (nothing is added twice).
+        for (const t of corrected) await api.updateTransaction(t.id, { ...t, hadNoFee: Boolean(t.noFee) })
         // All at once, or nothing (a dropped connection or signing out
         // halfway leaves no partial import).
         if (await api.importStatement(target.id, who, fresh, [...filled], accountRates, memberRates)) return
@@ -570,8 +578,9 @@ export function SavingsProvider({ children }) {
     if (state.activeId !== into) setData(d => ({ ...d, activeId: into }))
     if (target.cloud && state.activeId !== into) writeCloudActive(into)
     const gapNote = filled.size ? ' · missing statement filled in' : ''
-    showToast((skipped ? `${fresh.length} imported, ${skipped} already there` : `${fresh.length} transactions imported`) + gapNote)
-    return { added: fresh.length, skipped, filled: filled.size, accountId: into }
+    const fixNote = corrected.length ? ` · ${corrected.length} date${corrected.length === 1 ? '' : 's'} corrected` : ''
+    showToast((skipped ? `${fresh.length} imported, ${skipped} already there` : `${fresh.length} transactions imported`) + gapNote + fixNote)
+    return { added: fresh.length, skipped, corrected: corrected.length, filled: filled.size, accountId: into }
   }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, remote, showToast])
 
   /**
