@@ -120,6 +120,8 @@ export function SavingsProvider({ children }) {
   dataRef.current = data
   const modeRef = useRef(cloudMode)
   modeRef.current = cloudMode
+  const userRef = useRef(userId)
+  userRef.current = userId
 
   const setData = useCallback((update) => {
     const next = typeof update === 'function' ? update(dataRef.current) : update
@@ -255,6 +257,17 @@ export function SavingsProvider({ children }) {
         reload()
       })
   }, [showToast, reload])
+
+  /** Runs a cloud save and waits for it. Resolves to null, or why it failed (after reloading). */
+  const saved = useCallback(async (run) => {
+    try {
+      await run()
+      return null
+    } catch (err) {
+      await reload()
+      return `Couldn't save: ${err.message}`
+    }
+  }, [reload])
 
   // ---- derived -------------------------------------------------------------
 
@@ -477,9 +490,10 @@ export function SavingsProvider({ children }) {
    *   memberId: whose money, in a shared account (owner only; default you)
    *   rates: the statement's rates [{ from, annualRate }], used if `useRates`
    * Lines already imported before (same statement reference) are skipped.
-   * Returns { added, skipped, accountId } or { error }.
+   * Signed in, it's saved first: the screen only changes once it's kept.
+   * Resolves to { added, skipped, accountId } or { error }.
    */
-  const importStatement = useCallback(({ into, name, memberId, transactions, anchors = [], rates, useRates, period }) => {
+  const importStatement = useCallback(async ({ into, name, memberId, transactions, anchors = [], rates, useRates, period }) => {
     const state = dataRef.current
     const cloud = modeRef.current
     const rateList = rates.map(r => ({ from: r.from, annualRate: r.annualRate, serviceCharge: SERVICE_CHARGE }))
@@ -502,17 +516,25 @@ export function SavingsProvider({ children }) {
         ? { ...created, cloud: true, role: 'owner', ownerId: userId, membersSeeAll: true, inviteCode: null, activity: [],
             members: [{ id: userId, role: 'owner', name: auth?.user?.name ?? 'You', avatarUrl: auth?.user?.avatarUrl ?? null, rates: null }] }
         : created
-      setData(d => ({ ...d, activeId: created.id, accounts: [...d.accounts, shown] }))
       if (cloud) {
-        writeCloudActive(created.id)
-        remote(async () => {
-          // The account first, then its transactions all at once: a failure
-          // halfway leaves at most an empty account, never a partial history.
-          await api.createAccount({ ...created, transactions: [] }, userId)
-          if (await api.importStatement(created.id, userId, created.transactions, [], null, null)) return
-          await api.addTransactions(created.id, created.transactions)
+        const error = await saved(async () => {
+          // The account first, then its transactions all at once. If that
+          // fails, the account goes too: nothing half-imported is left.
+          try {
+            await api.createAccount({ ...created, transactions: [] }, userId)
+            if (await api.importStatement(created.id, userId, created.transactions, [], null, null)) return
+            await api.addTransactions(created.id, created.transactions)
+          } catch (err) {
+            await api.deleteAccount(created.id).catch(() => {})
+            throw err
+          }
         })
+        if (error) return { error }
+        if (userRef.current !== userId) return { error: 'You signed out or switched account. The import was saved.' }
+        writeCloudActive(created.id)
       }
+      // (A live update may have brought it in already.)
+      setData(d => ({ ...d, activeId: created.id, accounts: [...d.accounts.filter(a => a.id !== created.id), shown] }))
       showToast(`${created.transactions.length} transactions imported into ${name}`)
       return { added: created.transactions.length, skipped: 0, accountId: created.id }
     }
@@ -545,27 +567,15 @@ export function SavingsProvider({ children }) {
     const filled = new Set(plan.remove)
     const skipped = plan.skipped
     const newDates = new Map(plan.moved.map(m => [m.id, m.date]))
-    const corrected = target.transactions.filter(t => newDates.has(t.id)).map(t => ({ ...t, date: newDates.get(t.id) }))
+    const corrected = plan.moved.length
     const fresh = plan.add.map(t => (target.cloud ? { ...t, memberId: who } : t))
     const memberRates = plan.rates && ownRates ? sanitizeRates(plan.rates) : null
     const accountRates = plan.rates && !ownRates ? sanitizeRates(plan.rates) : null
-    setData(d => withAccount(d, a => ({
-      ...a,
-      transactions: [
-        ...a.transactions.filter(t => !filled.has(t.id)).map(t => (newDates.has(t.id) ? { ...t, date: newDates.get(t.id) } : t)),
-        ...fresh,
-      ],
-      ...(accountRates ? { rates: accountRates } : {}),
-      ...(memberRates ? { members: a.members.map(m => (m.id === who ? { ...m, rates: memberRates } : m)) } : {}),
-    }), into))
     if (target.cloud) {
-      remote(async () => {
-        // Corrected dates first: if this stops halfway, importing again
-        // finishes the job (nothing is added twice).
-        for (const t of corrected) await api.updateTransaction(t.id, { ...t, hadNoFee: Boolean(t.noFee) })
+      const error = await saved(async () => {
         // All at once, or nothing (a dropped connection or signing out
         // halfway leaves no partial import).
-        if (await api.importStatement(target.id, who, fresh, [...filled], accountRates, memberRates)) return
+        if (await api.importStatement(target.id, who, fresh, [...filled], accountRates, memberRates, plan.moved)) return
         // Database without migration 006: separate requests. Add first, then
         // remove stand-ins, so a failure halfway never leaves a hole and
         // importing again finishes the job.
@@ -574,14 +584,27 @@ export function SavingsProvider({ children }) {
         if (memberRates) await api.setMemberRates(target.id, who, memberRates)
         else if (accountRates) await api.setRates(target.id, accountRates)
       })
+      if (error) return { error }
+      if (userRef.current !== userId) return { error: 'You signed out or switched account. The import was saved.' }
     }
+    // (A live update may have brought some of it in already.)
+    const freshIds = new Set(fresh.map(t => t.id))
+    setData(d => withAccount(d, a => ({
+      ...a,
+      transactions: [
+        ...a.transactions.filter(t => !filled.has(t.id) && !freshIds.has(t.id)).map(t => (newDates.has(t.id) ? { ...t, date: newDates.get(t.id) } : t)),
+        ...fresh,
+      ],
+      ...(accountRates ? { rates: accountRates } : {}),
+      ...(memberRates ? { members: a.members.map(m => (m.id === who ? { ...m, rates: memberRates } : m)) } : {}),
+    }), into))
     if (state.activeId !== into) setData(d => ({ ...d, activeId: into }))
     if (target.cloud && state.activeId !== into) writeCloudActive(into)
     const gapNote = filled.size ? ' · missing statement filled in' : ''
-    const fixNote = corrected.length ? ` · ${corrected.length} date${corrected.length === 1 ? '' : 's'} corrected` : ''
+    const fixNote = corrected ? ` · ${corrected} date${corrected === 1 ? '' : 's'} corrected` : ''
     showToast((skipped ? `${fresh.length} imported, ${skipped} already there` : `${fresh.length} transactions imported`) + gapNote + fixNote)
-    return { added: fresh.length, skipped, corrected: corrected.length, filled: filled.size, accountId: into }
-  }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, remote, showToast])
+    return { added: fresh.length, skipped, corrected, filled: filled.size, accountId: into }
+  }, [today, userId, auth?.user?.name, auth?.user?.avatarUrl, setData, saved, showToast])
 
   /**
    * Removes the imported statement lines of one Yehulu account between two

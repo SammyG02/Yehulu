@@ -144,6 +144,9 @@ const toTxnRow = (accountId, t) => ({
   ...(t.source ? { source: t.source } : {}),
 })
 
+/** Is this error the database not having that function yet (a migration not run)? Anything else is a real failure. */
+const noSuchFunction = (error) => error.code === 'PGRST202' || (!error.code && /Could not find the function/i.test(error.message))
+
 /** Every change the app can make, one function each. All throw on failure. */
 export const cloudApi = (client) => ({
   async createAccount({ id, name, rates, transactions = [], goal }, userId) {
@@ -177,10 +180,11 @@ export const cloudApi = (client) => ({
   /**
    * A statement import, saved all at once or not at all (migration 006).
    * Returns false if the database doesn't have that yet (then the caller
-   * falls back to separate requests).
+   * falls back to separate requests). With corrected dates (migration 014)
+   * there's no falling back: it throws.
    */
-  async importStatement(accountId, memberId, txns, removeIds, accountRates, memberRates) {
-    const { error } = await client.rpc('import_statement', {
+  async importStatement(accountId, memberId, txns, removeIds, accountRates, memberRates, moves = []) {
+    const { error } = await client.rpc(moves.length ? 'import_statement_dated' : 'import_statement', {
       acc: accountId,
       member: memberId,
       new_rows: txns.map(t => ({
@@ -190,9 +194,14 @@ export const cloudApi = (client) => ({
       remove_ids: removeIds,
       account_rates: accountRates ? accountRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
       member_rates: memberRates ? memberRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
+      ...(moves.length ? { moves: moves.map(m => ({ id: m.id, from: m.from, to: m.date })) } : {}),
     })
     if (!error) return true
-    if (/import_statement|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
+    if (noSuchFunction(error)) {
+      // Never in pieces: balances would be wrong for everyone if it stopped halfway.
+      if (moves.length) throw new Error('this import also corrects dates, which needs the database update 014. Nothing was changed.')
+      return false
+    }
     throw new Error(error.message)
   },
   /**
@@ -207,7 +216,7 @@ export const cloudApi = (client) => ({
       new_rows: bridges.map(t => ({ id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '', no_fee: Boolean(t.noFee), ref: t.ref })),
     })
     if (!error) return true
-    if (/remove_statement_lines|PGRST202|Could not find the function/i.test(error.message + (error.code ?? ''))) return false
+    if (noSuchFunction(error)) return false
     throw new Error(error.message)
   },
   // ---- connected apps (migration 008) ----

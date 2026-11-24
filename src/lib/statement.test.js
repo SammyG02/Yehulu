@@ -546,6 +546,8 @@ test('atomic cloud import: sends one request; falls back only when the database 
   assert.deepEqual(calls[0][1].remove_ids, ['old'])
   assert.deepEqual(calls[0][1].member_rates, [{ from: '2026-01-01', annual_rate: 2 }])
   assert.equal(await cloudApi(client({ message: 'Could not find the function public.import_statement', code: 'PGRST202' })).importStatement('acc', 'me', [], [], null, null), false)
+  await assert.rejects(cloudApi(client({ message: 'permission denied for function import_statement', code: '42501' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
+  await assert.rejects(cloudApi(client({ message: 'Could not choose the best candidate function between: public.import_statement', code: 'PGRST203' })).importStatement('acc', 'me', [], [], null, null), /best candidate/)
   await assert.rejects(cloudApi(client({ message: 'permission denied' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
 })
 
@@ -767,6 +769,7 @@ test('review 1: with only one ordinary day to go by, two late days still are not
   const imp = p.read()
   assert.deepEqual(imp.rates, [{ from: D(1), annualRate: 40 }])
   assert.equal(dated(imp, 100007), D(4))
+  appAgrees(imp)
 })
 
 test('review 1: what cannot be explained changes nothing: dates stay, no rate is made up, the difference shows', () => {
@@ -991,4 +994,97 @@ test('made-up statements by the hundred: late days, mixed order, corrections, sm
       if (a * r / 36500 > 2) assert.equal(got.get(a), day, `run ${run}: ${a}`)
     }
   }
+})
+
+// The oldest imports know a line only by "reference or booking date:amount".
+test('older references: equal lines are paired one to one, and every date comes out right', () => {
+  const { whole } = lateStatement()
+  const right = importInto(empty, [whole])
+  const oldRef = `${D(7)}:-1000`
+  const orders = right.transactions.filter(t => t.noFee)
+  assert.equal(orders.length, 2)
+  const lines = buildImport([whole]).transactions.map(t => (t.noFee ? { ...t, id: newId(), legacyRefs: [oldRef] } : { ...t, id: newId() }))
+  const plan = (stored, incoming = lines) => planImport({
+    existing: [...right.transactions.filter(t => !t.noFee), ...stored], lines: incoming, anchors: [],
+    currentRates: right.rates, foundRates: [], useRates: false, period: { from: D(1), to: D(12) }, newId,
+  })
+  const old = (t, date) => ({ ...t, ref: oldRef, date })
+  // The standing orders' dates once the plan is carried out.
+  const dates = (stored, incoming) => {
+    const p = plan(stored, incoming)
+    assert.equal(new Set(p.moved.map(m => m.id)).size, p.moved.length, 'no line is moved twice')
+    return [...stored.map(t => p.moved.find(m => m.id === t.id)?.date ?? t.date), ...p.add.filter(t => t.noFee).map(t => t.date)].sort()
+  }
+  const [a, b] = orders
+  const one = lines.filter(l => l.ref !== b.ref)
+  assert.deepEqual(dates([old(a, D(6)), old(b, D(6))]), [D(7), D(7)], 'two stored, two on the statement')
+  assert.deepEqual(dates([old(a, D(6))]), [D(7), D(7)], 'one stored, two on the statement: the other is added')
+  assert.deepEqual(dates([old(a, D(6)), old(b, D(6))], one), [D(6), D(7)], 'two stored, one on the statement')
+  assert.deepEqual(dates([old(a, D(6)), old(b, D(9))]), [D(7), D(9)], 'one you changed yourself stays')
+  assert.deepEqual(dates([a, b].map(t => ({ ...t, date: D(6) }))), [D(7), D(7)], 'full references')
+  assert.deepEqual(dates([{ ...a, date: D(6) }, old(b, D(6))]), [D(7), D(7)], 'one of each')
+  // Only one of the two is late: the other keeps its date.
+  const mixed = lines.map(l => { if (l.ref !== b.ref) return l; return { ...l, oldDate: undefined, date: D(6) } })
+  for (const stored of [[old(a, D(6)), old(b, D(6))], [old(b, D(6)), old(a, D(6))], [old(a, D(6))]]) assert.deepEqual(dates(stored, mixed), [D(6), D(7)])
+  // Nothing is added twice when both kinds of old reference are stored.
+  const keyed = lines.map((l, k) => (l.noFee ? { ...l, legacyRefs: [`y:key${k}`, oldRef] } : l))
+  const firstKey = keyed.find(l => l.noFee).legacyRefs[0]
+  for (const stored of [[{ ...a, ref: firstKey }, old(b, D(7))], [old(b, D(7)), { ...a, ref: firstKey }]]) assert.deepEqual(plan(stored, keyed).add, [])
+  // A different line that happens to share the older reference is not its pair.
+  const other = { ...lines.find(l => l.ref === a.ref), id: 'cash', ref: 'y:other', noFee: false, amount: 9.98, date: D(6), legacyRefs: [oldRef] }
+  delete other.oldDate
+  assert.deepEqual(plan([old(a, D(6))], [other, ...one]).add.map(t => t.id), ['cash'])
+})
+
+test('second review 1: a single old line is still corrected by its old reference', () => {
+  const { whole } = lateStatement()
+  const right = importInto(empty, [whole])
+  const [one] = right.transactions.filter(t => t.noFee)
+  const line = { ...buildImport([whole]).transactions.find(t => t.ref === one.ref), id: 'new', legacyRefs: ['OLD:-1000'] }
+  const { moved, add } = planImport({
+    existing: [{ ...one, ref: 'OLD:-1000', date: D(6) }], lines: [line], anchors: [],
+    currentRates: right.rates, foundRates: [], useRates: false, period: { from: D(1), to: D(12) }, newId,
+  })
+  assert.deepEqual([moved, add], [[{ id: one.id, from: D(6), date: D(7) }], []])
+})
+
+test('second review 2: a deposit you entered by hand is not added again when its date is corrected', () => {
+  const rates = [{ from: D(1), annualRate: 40, serviceCharge: 10 }]
+  const plan = (own, lines) => planImport({
+    existing: own, lines, anchors: [], currentRates: rates, foundRates: [], useRates: false, period: { from: D(1), to: D(30) }, newId,
+  })
+  const line = (id, date, oldDate) => ({ id, type: 'deposit', amount: 500, date, ref: `y:1:${id}`, noFee: false, legacyRefs: [], ...(oldDate ? { oldDate } : {}) })
+  const own = (id, date) => ({ id, type: 'deposit', amount: 500, date })
+  // Matched at its old date by an earlier version: still the same money.
+  const p = plan([own('mine', D(6))], [line('a', D(20), D(6))])
+  assert.deepEqual([p.add, p.matched.map(m => m.own.id)], [[], ['mine']])
+  // A line on the entry's own date has first claim to it.
+  for (const order of [[0, 1], [1, 0]]) {
+    const lines = [line('a', D(20), D(6)), line('b', D(6))]
+    const q = plan([own('mine', D(6))], order.map(k => lines[k]))
+    assert.deepEqual([q.add.map(t => t.id), q.matched.map(m => m.line.id)], [['a'], ['b']])
+  }
+  // Without an old date nothing changes: two weeks apart is other money.
+  assert.equal(plan([own('mine', D(6))], [line('a', D(20))]).add.length, 1)
+  assert.ok(!('oldDate' in plan([], [line('a', D(20), D(6))]).add[0]), 'working notes are not stored')
+})
+
+test('entries you added by hand are shared out so that none is counted twice', () => {
+  const rates = [{ from: D(1), annualRate: 40, serviceCharge: 10 }]
+  const line = (id, date, oldDate) => ({ id, type: 'deposit', amount: 500, date: D(date), ref: `y:1:${id}`, noFee: false, legacyRefs: [], ...(oldDate ? { oldDate: D(oldDate) } : {}) })
+  const added = (own, lines) => planImport({
+    existing: own.map(n => ({ id: `own${n}`, type: 'deposit', amount: 500, date: D(n) })), lines, anchors: [],
+    currentRates: rates, foundRates: [], useRates: false, period: { from: D(1), to: D(40) }, newId,
+  }).add.map(t => t.id)
+  // Every order of the lines gives the same answer.
+  const orders = (list) => (list.length < 2 ? [list] : list.flatMap((x, i) => orders([...list.slice(0, i), ...list.slice(i + 1)]).map(rest => [x, ...rest])))
+  const always = (own, lines, expected) => { for (const o of orders(lines)) assert.deepEqual(added(own, o).sort(), expected, `${o.map(l => l.id)}`) }
+  always([4, 9], [line('a', 8, 6), line('b', 10)], [])
+  // Two corrected lines, one entry each: the one with a choice makes room.
+  always([4, 9], [line('a', 8, 6), line('b', 30, 10)], [])
+  always([4, 9, 14], [line('a', 8, 6), line('b', 13, 10), line('c', 30, 15)], [])
+  // Not enough entries: exactly one line is new.
+  for (const o of orders([line('a', 8, 6), line('b', 10), line('c', 30, 9)])) assert.equal(added([4, 9], o).length, 1)
+  // Ordinary lines are matched as before: to the nearest entry.
+  assert.deepEqual(added([1, 4], [line('a', 4), line('b', 7)]), ['b'])
 })

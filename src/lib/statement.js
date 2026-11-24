@@ -595,7 +595,7 @@ export function bridgesFor(transactions, anchors, rates) {
  *   currentRates / foundRates: [{ from, annualRate, serviceCharge }] (percent)
  *   useRates: put the found rates into the history (for the statements' days)
  *   period: { from, to } of the statements; newId: ids for new bridges
- * Returns { add, remove (ids), moved ([{ id, date }]: corrected dates), rates (new
+ * Returns { add, remove (ids), moved ([{ id, from, date }]: corrected dates), rates (new
  * history, or null), skipped, bridges }.
  *
  * Statements can come in any order and with gaps: each import recomputes the
@@ -621,39 +621,23 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
   const oldBridges = existing.filter(isBridge)
   // Lines an earlier version dated wrongly (interest posted late): put right,
   // unless the date isn't the one it gave (you changed it yourself).
-  const byRef = new Map(existing.filter(t => t.ref).map(t => [t.ref, t]))
+  const stored = pairStored(lines, existing.filter(t => t.ref && !isBridge(t)))
   const moved = []
-  for (const line of lines) {
-    if (!line.oldDate) continue
-    const stored = [line.ref, ...(line.legacyRefs ?? [])].map(r => byRef.get(r)).find(Boolean)
-    if (stored && stored.date === line.oldDate) moved.push({ id: stored.id, date: line.date })
+  for (const [line, t] of stored) {
+    if (line.oldDate && t.date === line.oldDate) moved.push({ id: t.id, from: t.date, date: line.date })
   }
   const newDate = new Map(moved.map(m => [m.id, m.date]))
   const real = existing.filter(t => !isBridge(t)).map(t => (newDate.has(t.id) ? { ...t, date: newDate.get(t.id) } : t))
-  const known = new Set(real.map(t => t.ref).filter(Boolean))
-  // Lines imported by an earlier version of the app carry the older reference.
-  // Lines imported by earlier versions of the app carry older references.
-  const fresh = lines
-    .filter(t => !isBridge(t) && !(t.ref && known.has(t.ref)) && !(t.legacyRefs ?? []).some(r => known.has(r)))
-    .map(({ legacyRefs: _legacy, oldDate: _old, ...t }) => t)
+  const fresh = lines.filter(t => !isBridge(t) && !stored.has(t)).map(({ legacyRefs: _legacy, ...t }) => t)
 
   // Money you entered yourself (no statement reference) that is the same as a
   // statement line: same kind, same amount, within 3 days. It's already
   // counted, so the statement's copy isn't added. Your entry is left as it is.
   const own = real.filter(t => !t.ref)
-  const used = new Set()
-  const matched = []
-  const added = fresh.filter(line => {
-    if (isOpening(line)) return true
-    const candidates = own
-      .filter(m => !used.has(m.id) && m.type === line.type && Math.abs(m.amount - line.amount) < 0.005
-        && Math.abs(daysBetween(m.date, line.date)) <= MATCH_DAYS)
-      .sort((a, b) => Math.abs(daysBetween(a.date, line.date)) - Math.abs(daysBetween(b.date, line.date)))
-    if (!candidates.length) return true
-    used.add(candidates[0].id)
-    matched.push({ own: candidates[0], line })
-    return false
-  })
+  const ownFor = pairOwn(fresh, own)
+  const matched = fresh.filter(t => ownFor.has(t)).map(line => ({ own: ownFor.get(line), line }))
+  const used = new Set(matched.map(m => m.own.id))
+  const added = fresh.filter(t => !ownFor.has(t)).map(({ oldDate: _old, ...t }) => t)
   // Your own entries in the statement's period that it doesn't show: listed
   // for you to check, never changed.
   const unmatchedOwn = own.filter(t => !used.has(t.id) && t.date >= period.from && t.date <= period.to)
@@ -696,6 +680,72 @@ export function planImport({ existing, lines, anchors, currentRates, foundRates,
     unmatchedOwn,
     bridges,
   }
+}
+
+/**
+ * Which statement lines are already stored: Map(line -> stored). One to one,
+ * so a stored line never stands for two. By the full reference; then, for
+ * lines imported by earlier versions, by their older references (most exact
+ * first). Equal lines can share the oldest kind: those are paired by what
+ * they are and their date.
+ */
+function pairStored(lines, stored) {
+  const pairs = new Map()
+  const free = new Map() // reference -> stored lines not paired yet
+  for (const t of stored) free.set(t.ref, [...(free.get(t.ref) ?? []), t])
+  const take = (line, t) => {
+    pairs.set(line, t)
+    free.set(t.ref, free.get(t.ref).filter(x => x !== t))
+  }
+  const likeness = (line, t) => (
+    (line.type === t.type && Math.abs(line.amount - t.amount) < 0.005 && Boolean(line.noFee) === Boolean(t.noFee) ? 4 : 0)
+    + (t.date === line.date ? 2 : t.date === line.oldDate ? 1 : 0))
+  const levels = [t => t.ref, t => t.legacyRefs?.[0], t => t.legacyRefs?.[1]]
+  for (const refOf of levels) {
+    const options = lines
+      .filter(line => !pairs.has(line) && refOf(line))
+      .flatMap(line => (free.get(refOf(line)) ?? []).map(t => ({ line, t, score: likeness(line, t) })))
+      .sort((a, b) => b.score - a.score)
+    for (const { line, t } of options) {
+      if (!pairs.has(line) && free.get(t.ref).includes(t)) take(line, t)
+    }
+  }
+  return pairs
+}
+
+/**
+ * Which of your own entries are statement lines: Map(line -> entry), each
+ * entry once. Each line takes the nearest entry to its date; lines whose date
+ * was corrected (interest posted late) choose last, can also be the entry an
+ * earlier version matched them with, and make room for a line that would
+ * otherwise be counted twice.
+ */
+function pairOwn(lines, own) {
+  const pairs = new Map()
+  const holder = new Map() // entry -> line
+  const take = (line, entry) => { pairs.set(line, entry); holder.set(entry, line) }
+  const near = (line, date) => (isOpening(line) || !date ? [] : own
+    .filter(m => m.type === line.type && Math.abs(m.amount - line.amount) < 0.005 && Math.abs(daysBetween(m.date, date)) <= MATCH_DAYS)
+    .sort((a, b) => Math.abs(daysBetween(a.date, date)) - Math.abs(daysBetween(b.date, date))))
+
+  const inTurn = [...lines.filter(t => !t.oldDate), ...lines.filter(t => t.oldDate)]
+  for (const line of inTurn) {
+    const entry = near(line, line.date).find(m => !holder.has(m))
+    if (entry) take(line, entry)
+  }
+  const place = (line, tried) => {
+    for (const entry of [...near(line, line.date), ...near(line, line.oldDate)]) {
+      if (tried.has(entry)) continue
+      tried.add(entry)
+      const other = holder.get(entry)
+      if (other && !(other.oldDate && place(other, tried))) continue
+      take(line, entry)
+      return true
+    }
+    return false
+  }
+  for (const line of inTurn) if (!pairs.has(line)) place(line, new Set())
+  return pairs
 }
 
 /** Statements of one Yehulu account going into money that holds another's. */

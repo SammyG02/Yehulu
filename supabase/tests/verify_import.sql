@@ -14,7 +14,7 @@ declare
   b1 uuid := gen_random_uuid();  -- stand-in (bridge) lines
   b2 uuid := gen_random_uuid();
   b3 uuid := gen_random_uuid();
-  res text := 'RESULTS (all of this was undone afterwards):';
+  res text := 'RESULTS:';
   n int;
   rate numeric;
   err text;
@@ -177,6 +177,97 @@ begin
   select (rates -> 0 ->> 'annual_rate')::numeric into rate from public.account_members where account_id = acc and user_id = m;
   res := res || E'\n' || case when n = 1 and rate = 2 then 'PASS' else 'FAIL' end || '  owner: can import for a member and give them their own rate';
 
+  -- 5. CORRECTED DATES (migration 014).
+  select count(*) into n from pg_proc p join pg_namespace s on s.oid = p.pronamespace where s.nspname = 'public' and p.proname in ('import_statement', 'import_statement_dated');
+  res := res || E'\n' || case when n = 2 and to_regprocedure('public.import_statement_dated(uuid,uuid,jsonb,uuid[],jsonb,jsonb,jsonb)') is not null then 'PASS' else 'FAIL' end || '  014: the import can correct dates (and there is one of each import function)';
+  if to_regprocedure('public.import_statement_dated(uuid,uuid,jsonb,uuid[],jsonb,jsonb,jsonb)') is not null then
+  res := res || E'\n' || case when not has_function_privilege('anon', 'public.import_statement_dated(uuid,uuid,jsonb,uuid[],jsonb,jsonb,jsonb)', 'execute') and has_function_privilege('authenticated', 'public.import_statement_dated(uuid,uuid,jsonb,uuid[],jsonb,jsonb,jsonb)', 'execute') then 'PASS' else 'FAIL' end || '  014: only signed-in people can call it';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r1 ->> 'id', 'from', '2026-02-01', 'to', '2026-02-06'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:1' and date = '2026-02-06';
+  res := res || E'\n' || case when err is null and n = 1 then 'PASS' else 'FAIL' end || '  owner: a line''s date is corrected';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r1 ->> 'id', 'from', '2026-02-01', 'to', '2026-02-06'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:1' and date = '2026-02-06';
+  res := res || E'\n' || case when err is null and n = 1 then 'PASS' else 'FAIL' end || '  the same request sent twice is fine';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, jsonb_build_array(r4), array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r2 ->> 'id', 'from', '2026-02-02', 'to', '2026-02-07'), jsonb_build_object('id', r3 ->> 'id', 'from', '2026-01-01', 'to', '2026-02-08'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ((ref = 'y:TEST:2' and date = '2026-02-02') or (ref = 'y:TEST:3' and date = '2026-02-03') or ref = 'y:TEST:4');
+  res := res || E'\n' || case when err is not null and n = 2 then 'PASS' else 'FAIL' end || '  changed meanwhile: the whole import is refused, nothing moves, nothing is added';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, jsonb_build_array(r4), array[]::uuid[], '[{"from":"2026-01-01","annual_rate":500}]'::jsonb, null, jsonb_build_array(jsonb_build_object('id', r2 ->> 'id', 'from', '2026-02-02', 'to', '2026-02-07'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ((ref = 'y:TEST:2' and date = '2026-02-02') or ref = 'y:TEST:4');
+  res := res || E'\n' || case when err is not null and n = 1 then 'PASS' else 'FAIL' end || '  rollback: when a later step fails, corrected dates go back too';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r2 ->> 'id', 'from', '2026-02-02', 'to', '2026-02-07'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:2' and date = '2026-02-02';
+  res := res || E'\n' || case when err is not null and n = 1 then 'PASS' else 'FAIL' end || '  member: cannot move the owner''s lines';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, m, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r2 ->> 'id', 'from', '2026-02-02', 'to', '2026-02-07'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:2' and date = '2026-02-02';
+  res := res || E'\n' || case when err is not null and n = 1 then 'PASS' else 'FAIL' end || '  member: nor by pretending they are their own';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, m, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', rm3 ->> 'id', 'from', '2026-02-12', 'to', '2026-02-13'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:M3' and date = '2026-02-13';
+  res := res || E'\n' || case when err is null and n = 1 then 'PASS' else 'FAIL' end || '  member: can correct their own line';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, m, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', rm4 ->> 'id', 'from', '2026-02-13', 'to', '2026-02-14'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and ref = 'y:TEST:M4' and date = '2026-02-14';
+  res := res || E'\n' || case when err is null and n = 1 then 'PASS' else 'FAIL' end || '  owner: can correct a member''s line';
+  update public.transactions set ref = null where id = (r3 ->> 'id')::uuid;
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null;
+  begin perform public.import_statement_dated(acc, o, '[]'::jsonb, array[]::uuid[], null, null, jsonb_build_array(jsonb_build_object('id', r3 ->> 'id', 'from', '2026-02-03', 'to', '2026-02-09'))); exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where account_id = acc and id = (r3 ->> 'id')::uuid and date = '2026-02-03';
+  res := res || E'\n' || case when err is not null and n = 1 then 'PASS' else 'FAIL' end || '  an entry someone typed in themselves is never moved';
+  end if;
+
   -- Undo everything (on purpose) and show the results.
-  raise exception '%', res;
+  -- The total and any failures come first, in case the list is cut off.
+  raise exception E'% PASS, % FAIL (all of this was undone afterwards)%
+
+%',
+    (select count(*) from regexp_matches(res, E'
+PASS  ', 'g')),
+    (select count(*) from regexp_matches(res, E'
+FAIL  ', 'g')),
+    coalesce((select string_agg(E'
+' || line, '') from regexp_split_to_table(res, E'
+') line where line like 'FAIL  %'), ''),
+    res;
 end $$;

@@ -198,7 +198,8 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
   const changes = plan.add.length + plan.remove.length + plan.moved.length > 0
-  const nothingNew = Boolean(target) && !refused && !changes
+  // (Not while saving: what's being saved may already show up as there.)
+  const nothingNew = Boolean(target) && !refused && !changes && !busy
   // Going somewhere else while another account already has these statements.
   const twice = target && choice?.kind !== 'same' ? [...new Set(sameIn.map(c => accounts.find(a => a.id === c.id).name))] : []
 
@@ -215,16 +216,16 @@ function Review({ result, fileCount, onDone, onCancel }) {
     return [c.id, `${owner ?? money} · has these statements, ${formatDate(dates[0])} – ${formatDate(dates.at(-1))}`]
   })), [choices, accounts, balances, me])
 
-  const buttonText = !into ? 'Choose an account' : into === NEW ? `Add ${plan.add.length} to a new account`
+  const buttonText = busy ? 'Saving…' : !into ? 'Choose an account' : into === NEW ? `Add ${plan.add.length} to a new account`
     : plan.add.length ? `Add ${plan.add.length} to ${target.name}` : `Update ${target.name}`
   const endMatches = Boolean(check && check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005)
 
-  const doImport = () => {
+  const doImport = async () => {
     setError(null)
     if (!into) return setError('Choose where it goes.')
     if (into === NEW && !name.trim()) return setError('Give the new account a name.')
     setBusy(true)
-    const outcome = actions.importStatement({
+    const outcome = await actions.importStatement({
       into, name: name.trim().slice(0, 40), memberId: who, transactions: result.transactions, anchors: result.anchors,
       rates: result.rates, useRates: into === NEW || useRates, period: { from: result.from, to: result.to },
     })
@@ -433,7 +434,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
         <Button onClick={onCancel} className="w-full">Done</Button>
       ) : (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
           <Button onClick={doImport} disabled={busy || blocked || !into || Boolean(nameError) || !changes} className="min-w-0">
             <span className="truncate">{buttonText}</span>
           </Button>

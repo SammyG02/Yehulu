@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildAccounts } from './cloud.js'
+import { buildAccounts, cloudApi } from './cloud.js'
 
 const ME = 'u-me'
 const FRIEND = 'u-friend'
@@ -87,4 +87,41 @@ test("a member's own rate comes along; without one they earn the account rate", 
   assert.deepEqual(account.members.find(m => m.id === 'g-1').rates, [{ from: '2026-01-01', annualRate: 2, serviceCharge: 10 }])
   assert.deepEqual(ratesOf(account, 'g-1'), [{ from: '2026-01-01', annualRate: 0.02, serviceCharge: 0.1 }])
   assert.deepEqual(ratesOf(account, ME), account.rates.map(r => ({ ...r, annualRate: r.annualRate / 100, serviceCharge: r.serviceCharge / 100 })))
+})
+
+/** A pretend database: records each call and answers with `error`. */
+const pretend = (error = null) => {
+  const calls = []
+  return { calls, api: cloudApi({ rpc: async (name, args) => { calls.push([name, args]); return { data: 1, error } }, from: () => { throw new Error('separate request') } }) }
+}
+const MISSING = { code: 'PGRST202', message: 'Could not find the function public.x in the schema cache' }
+const MOVES = [{ id: 't1', from: '2026-11-01', date: '2026-11-02' }]
+
+test('an import saves corrected dates in the same single call', async () => {
+  const { api, calls } = pretend()
+  assert.equal(await api.importStatement('a', ME, [], ['b1'], null, null, MOVES), true)
+  assert.deepEqual(calls.map(c => c[0]), ['import_statement_dated'])
+  assert.deepEqual(calls[0][1].moves, [{ id: 't1', from: '2026-11-01', to: '2026-11-02' }])
+})
+
+test('an import without corrected dates works on a database without migration 014', async () => {
+  const { api, calls } = pretend()
+  await api.importStatement('a', ME, [], [], null, null)
+  assert.deepEqual([calls[0][0], 'moves' in calls[0][1]], ['import_statement', false])
+  assert.equal(await pretend(MISSING).api.importStatement('a', ME, [], [], null, null), false, 'the caller saves it the older way')
+})
+
+test('corrected dates are refused, never saved in pieces, on a database without migration 014', async () => {
+  const { api, calls } = pretend(MISSING)
+  await assert.rejects(api.importStatement('a', ME, [], [], null, null, MOVES), /014.*Nothing was changed/)
+  assert.equal(calls.length, 1)
+})
+
+test('any other failure is reported as it is, not as a missing update', async () => {
+  for (const error of [
+    { code: '42501', message: 'permission denied for function import_statement_dated' },
+    { code: 'P0001', message: 'Some of these lines changed meanwhile.' },
+    { code: '', message: 'TypeError: Failed to fetch' },
+  ]) await assert.rejects(pretend(error).api.importStatement('a', ME, [], [], null, null, MOVES), { message: error.message })
+  await assert.rejects(pretend({ code: '42501', message: 'permission denied for function remove_statement_lines' }).api.removeStatementLines('a', ME, [], []), /permission denied/)
 })
