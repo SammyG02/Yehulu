@@ -672,3 +672,29 @@ test('starts on the matching account, asks when two match, and makes a new one o
   assert.equal(start([acct('a', [undefined])]), 'new')
   assert.equal(start([acct('a', ['y:222:z'])], false), null)
 })
+
+test("interest posted late doesn't include the next day's lines printed before it", () => {
+  for (const late of [1, 2]) {
+    const a = statementRows({ from: '2026-03-01', days: 5, rate: 40, moves: { '2026-03-01': [{ type: 'Transfer Credit', amount: 213067866 }] } })
+    // The standing orders are printed first, then the interest of the `late` days before them.
+    let bal = a.at(-1).balance
+    let real = bal
+    const rows = [...a]
+    const add = (type, amount, value, book = `2026-03-0${6 + late}`) => { bal += amount; rows.push({ book, ref: `FT${rows.length}`.padEnd(16, 'Q'), type, value, amount, balance: bal }) }
+    for (let k = 0; k < 2; k++) add('Standing Order', -1000, `2026-03-0${6 + late}`)
+    for (let d = 0; d < late + 4; d++) {
+      if (d === late) real -= 2000
+      const interest = Math.round(real * 40 / 36500)
+      const charge = Math.round(interest / 10)
+      real += interest - charge
+      const value = `2026-03-${String(7 + d).padStart(2, '0')}`
+      add('Interest - Capitalise', interest, value)
+      add('Debit Arrangement', -charge, value)
+    }
+    const imp = buildImport([parseStatementPages([page(rows)])])
+    assert.deepEqual(imp.transactions.filter(t => t.noFee).map(t => t.date), Array(2).fill(`2026-03-0${6 + late}`))
+    const rates = imp.rates.map(r => ({ from: r.from, annualRate: r.annualRate / 100, serviceCharge: 0.1 }))
+    const cmp = compareWithStatement(simulateLedger({ transactions: imp.transactions, rates, fromDate: imp.to, endDate: imp.to }), imp.expected)
+    assert.deepEqual([cmp.matched, cmp.end.app], [cmp.days, bal / 100])
+  }
+})

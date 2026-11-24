@@ -303,6 +303,38 @@ function findRates(lines) {
 }
 
 /**
+ * Interest lines posted late: Map(row index -> indexes of the lines printed
+ * before it that it doesn't include). A line is only left out if its value
+ * date is after the interest's day, the balance with it doesn't give the
+ * printed interest at the statement's rate, and the balance without it does.
+ */
+function lateInterest(rows, dayOf) {
+  const periods = findRates([...dayOf].map(([i, day]) => ({ day, interest: rows[i].amount, base: rows[i].balance - rows[i].amount })))
+  const ratesNear = (day) => {
+    const at = periods.findLastIndex(p => p.from <= day)
+    return [periods[at], periods[at + 1]].filter(Boolean).map(p => p.annualRate)
+  }
+  const late = new Map()
+  let carried = [] // left out by the line before; may not be in this one either
+  for (const [i, day] of dayOf) {
+    const here = []
+    for (let j = i - 1; j >= 0 && rows[j].type !== INTEREST && rows[j].type !== CHARGE; j--) here.unshift(j)
+    const pending = [...carried, ...here]
+    const printed = rows[i].balance - rows[i].amount
+    const fits = (base) => ratesNear(day).some(rate => Math.round((base * rate) / 36500) === rows[i].amount)
+    carried = []
+    if (!fits(printed)) {
+      let base = printed
+      for (let k = pending.length - 1; k >= 0 && rows[pending[k]].valueDate > day; k--) {
+        base -= rows[pending[k]].amount
+        if (fits(base)) { carried = pending.slice(k); late.set(i, carried); break }
+      }
+    }
+  }
+  return late
+}
+
+/**
  * Turns one or more statements of the same account into what to import.
  * Overlapping statements are fine: rows already seen are skipped.
  * Returns {
@@ -372,6 +404,14 @@ export function buildImport(statements) {
     if (dayOf.has(i)) next = dayOf.get(i)
     nextInterestDay[i] = next
   }
+  // Sometimes a day's interest is posted late, printed after the next day's
+  // deposits and withdrawals but worked out without them. The amount tells:
+  // if it only fits the balance before those lines, they count from later.
+  const late = lateInterest(rows, dayOf)
+  for (const [i, left] of late) {
+    const next = [...dayOf].find(([k]) => k > i)?.[1] ?? null
+    for (const j of left) nextInterestDay[j] = next
+  }
   const dateOf = (r, i) => (nextInterestDay[i] && nextInterestDay[i] < r.valueDate ? nextInterestDay[i] : r.valueDate)
 
   const accountTag = (first => first?.accountNo ?? '')(sorted[0])
@@ -391,9 +431,10 @@ export function buildImport(statements) {
     if (r.type === INTEREST) {
       if (!dayOf.has(i)) return
       // The interest is on the balance just before it (that day's closing).
-      interestLines.push({ day: dayOf.get(i), interest: r.amount, base: prevBalance })
+      const after = (late.get(i) ?? []).reduce((sum, j) => sum + rows[j].amount, 0)
+      interestLines.push({ day: dayOf.get(i), interest: r.amount, base: prevBalance - after })
       const charge = rows[i + 1]?.type === CHARGE ? rows[i + 1] : null
-      expected.set(dayOf.get(i), (charge ? charge.balance : r.balance) / 100)
+      expected.set(dayOf.get(i), ((charge ? charge.balance : r.balance) - after) / 100)
       return
     }
     if (r.type === CHARGE) return
