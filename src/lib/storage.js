@@ -1,3 +1,4 @@
+import { sanitizeCharges, withCharges } from './charge.js'
 import { isDateKey, toDateKey } from './dates.js'
 
 export const STORAGE_KEY = 'yehuluSavings'
@@ -108,7 +109,14 @@ export const toRates = (account) => account.rates.map(toFraction)
  */
 export const memberRateList = (account, memberId) =>
   account.members?.find(m => m.id === memberId)?.rates ?? account.rates
-export const ratesOf = (account, memberId) => memberRateList(account, memberId).map(toFraction)
+/** The same as fractions, without any daily charge (statements are worked out with these). */
+export const plainRatesOf = (account, memberId) => memberRateList(account, memberId).map(toFraction)
+/** The rates a person's money is worked out with everywhere: theirs, with their daily charge. */
+export const ratesOf = (account, memberId) => withCharges(plainRatesOf(account, memberId), chargesOf(account, memberId))
+
+/** One person's daily charges (see charge.js): a member's own; device accounts have one list. */
+export const chargesOf = (account, memberId) =>
+  (account.members ? account.members.find(m => m.id === memberId)?.charges : account.charges) ?? []
 
 /** Savings goal: a target balance and an optional monthly top-up. */
 export const sanitizeGoal = (goal) => {
@@ -170,11 +178,13 @@ export function migrateAccount(raw, today, id = FIRST_ACCOUNT_ID) {
   // Older saves had one rate: it applies from the first transaction (or today).
   const firstDate = transactions.map(t => t.date).sort()[0] ?? today
   const legacy = raw.account && typeof raw.account === 'object'
+  const charges = sanitizeCharges(raw.charges)
   return {
     id,
     ...sanitizeAccount(legacy ? raw.account : raw, firstDate),
     goal: sanitizeGoal(raw.goal),
     transactions,
+    ...(charges.length ? { charges } : {}),
   }
 }
 

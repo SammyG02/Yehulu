@@ -1,14 +1,15 @@
 import { useId, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { CircleCheck, FileText, TriangleAlert } from 'lucide-react'
 import { SettingsPanel } from '../../components/settings/SettingsUI.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Card } from '../../components/ui/Card.jsx'
 import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
-import { simulateLedger } from '../../lib/interest.js'
+import { chargeFound } from '../../lib/charge.js'
+import { coveredUntil, simulateLedger } from '../../lib/interest.js'
 import { buildImport, compareWithStatement, importChoices, importedPeriods, planImport, planRemoval, readStatementPdf, statementAccounts, suggestChoice } from '../../lib/statement.js'
-import { MAX_ACCOUNTS, memberRateList, nameTaken, newId, ratesOf, toFraction } from '../../lib/storage.js'
+import { MAX_ACCOUNTS, memberRateList, chargesOf, nameTaken, newId, plainRatesOf, ratesOf, toFraction } from '../../lib/storage.js'
 import { useAccountBalances, useConfirm, useSavings } from '../../state/hooks.js'
 
 const NEW = 'new'
@@ -217,6 +218,14 @@ function Review({ result, fileCount, onDone, onCancel }) {
     return [c.id, `${owner ?? money} · has these statements, ${formatDate(dates[0])} – ${formatDate(dates.at(-1))}`]
   })), [choices, accounts, balances, me])
 
+  // What the app made of the days after the last statement, before this one.
+  const expected = useMemo(() => {
+    const until = coveredUntil(existing)
+    if (!target || !check?.end.date || !until || check.end.date <= until) return null
+    const row = simulateLedger({ transactions: existing, rates: ratesOf(target, who), fromDate: check.end.date, endDate: check.end.date }).at(-1)
+    return { balance: row.balance, off: check.end.yehulu - row.balance }
+  }, [existing, target, who, check])
+
   const buttonText = busy ? 'Saving…' : !into ? 'Choose an account' : into === NEW ? `Add ${plan.add.length} to a new account`
     : plan.add.length ? `Add ${plan.add.length} to ${target.name}` : `Update ${target.name}`
   const endMatches = Boolean(check && check.end.app != null && Math.abs(check.end.app - check.end.yehulu) < 0.005)
@@ -414,6 +423,12 @@ function Review({ result, fileCount, onDone, onCancel }) {
             </span>
           </span>
         </p>
+        {expected && (
+          <p className="text-xs text-muted">
+            Before this statement the app expected {formatMoney(expected.balance)}
+            {Math.abs(expected.off) < 0.005 ? ', exactly right.' : `: ${formatMoney(Math.abs(expected.off))} too ${expected.off > 0 ? 'low' : 'high'}. Money not added in the app, a different rate or a daily charge explains a difference.`}
+          </p>
+        )}
         {Math.abs(result.closing - check.end.yehulu) >= 0.005 && (
           <p className="text-xs text-muted">
             The statement ends at {formatMoney(result.closing)}: that also counts money moved after {formatDate(check.end.date)}, the last day with interest.
@@ -462,7 +477,7 @@ function ImportedPeriod({ period }) {
     if (!open || !from || !to || from > to) return null
     const existing = account.transactions.filter(t => !account.cloud || t.memberId === me)
     let n = 0
-    const plan = planRemoval({ existing, accountNo: period.accountNo, from, to, source: period.source, rates: ratesOf(account, me), newId: () => `p${n++}` })
+    const plan = planRemoval({ existing, accountNo: period.accountNo, from, to, source: period.source, rates: plainRatesOf(account, me), newId: () => `p${n++}` })
     const later = existing.some(t => t.ref?.startsWith(`y:${period.accountNo}:`) && t.date > to)
     return { ...plan.removed, total: plan.removed.deposits + plan.removed.withdrawals, later }
   }, [open, from, to, account, me, period.accountNo, period.source])
@@ -541,6 +556,20 @@ function ImportedList() {
   )
 }
 
+/** After an import: the statement shows a daily charge the app isn't counting yet. */
+function ChargeHint() {
+  const { account, me, today } = useSavings()
+  const money = account.cloud ? account.transactions.filter(t => t.memberId === me) : account.transactions
+  const found = chargeFound(money)
+  if (!found || chargesOf(account, me).some(c => c.amount > 0 || c.from > today) || (account.cloud && !account.chargesReady)) return null
+  return (
+    <p className="rounded-xl bg-sunken px-4 py-3 text-sm">
+      This account is charged {formatMoney(found.amount)} a day.{' '}
+      <Link to="/settings/charge" className="font-semibold text-brand-ink underline underline-offset-2">Keep counting it</Link>
+    </p>
+  )
+}
+
 export default function ImportSettings() {
   const navigate = useNavigate()
   const [found, setFound] = useState(null)
@@ -554,6 +583,7 @@ export default function ImportSettings() {
             <CircleCheck className="h-5 w-5" aria-hidden="true" />
             {done.added} transaction{done.added === 1 ? '' : 's'} added to {done.name}{done.skipped ? `, ${done.skipped} already there` : ''}{done.corrected ? `, ${done.corrected} date${done.corrected === 1 ? '' : 's'} corrected` : ''}.
           </p>
+          <ChargeHint />
           <div className="flex gap-2">
             <Button onClick={() => navigate('/')}>See it on Home</Button>
             <Button variant="ghost" onClick={() => { setDone(null); setFound(null) }}>Import more</Button>

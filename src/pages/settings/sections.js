@@ -6,6 +6,7 @@ import DataSettings from './DataSettings.jsx'
 import ImportSettings from './ImportSettings.jsx'
 import ConnectedAppsSettings from './ConnectedAppsSettings.jsx'
 import NotificationsSettings from './NotificationsSettings.jsx'
+import ChargeSettings from './ChargeSettings.jsx'
 import LogicSettings from './LogicSettings.jsx'
 import ThemeSettings from './ThemeSettings.jsx'
 import { THEME_OPTIONS } from './themeOptions.js'
@@ -62,6 +63,7 @@ export const SETTINGS_SECTIONS = [
   },
   // Inside other sections (not rows in the menu): their pages and links stay.
   { path: 'logic', label: 'Rate', parent: 'accounts', icon: Calculator, Component: LogicSettings },
+  { path: 'charge', label: 'Daily charge', parent: 'accounts', icon: Calculator, Component: ChargeSettings },
   { path: 'sharing', label: 'Sharing', parent: 'accounts', icon: Users, Component: SharingSettings },
   { path: 'import', label: 'Import statement', parent: 'data', icon: FileText, Component: ImportSettings },
 ]

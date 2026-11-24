@@ -12,7 +12,7 @@ import { formatDate, formatSigned, plain } from '../lib/format.js'
 import { InfoBubble } from '../components/ui/InfoBubble.jsx'
 
 import { feeOf } from '../lib/interest.js'
-import { useSavings } from '../state/hooks.js'
+import { useLedger, useSavings } from '../state/hooks.js'
 
 const FILTERS = [
   { value: 'all', label: 'All' },
@@ -33,8 +33,15 @@ export default function ActivityPage() {
   // Follows the View menu: everyone's (as far as you may see), yours, or one member's.
   const { viewTransactions: transactions, today, actions } = useSavings()
   const [filter, setFilter] = useState('all')
+  // The daily charge worked out for each month so far (it isn't a transaction).
+  const ledger = useLedger(1)
+  const charges = useMemo(() => {
+    const byMonth = new Map()
+    for (const r of ledger) if (r.charges > 0 && r.date <= today) byMonth.set(r.date.slice(0, 7), (byMonth.get(r.date.slice(0, 7)) ?? 0) + r.charges)
+    return byMonth
+  }, [ledger, today])
 
-  const { months, totalIn, totalOut, count } = useMemo(() => {
+  const { months, totalIn, totalOut } = useMemo(() => {
     const list = transactions
       .filter(t => matches(filter, t, today))
       .sort((a, b) => b.date.localeCompare(a.date))
@@ -54,8 +61,15 @@ export default function ActivityPage() {
       if (txn.type === 'deposit') inSum += txn.amount
       else outSum += out
     }
-    return { months: [...groups.values()], totalIn: inSum, totalOut: outSum, count: list.length }
-  }, [transactions, filter, today])
+    if (filter === 'all' || filter === 'out') {
+      for (const [key, sum] of charges) {
+        const group = groups.get(key) ?? { key, items: [], net: 0, in: 0, out: 0, fees: 0 }
+        groups.set(key, { ...group, charge: sum, net: group.net - sum, out: group.out + sum })
+        outSum += sum
+      }
+    }
+    return { months: [...groups.values()].sort((a, b) => b.key.localeCompare(a.key)), totalIn: inSum, totalOut: outSum }
+  }, [transactions, filter, today, charges])
 
   const addButton = (
     <Button className="hidden md:inline-flex" onClick={() => actions.openComposer()}>
@@ -97,7 +111,7 @@ export default function ActivityPage() {
             </Card>
           </div>
 
-          {count === 0 ? (
+          {months.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted">Nothing matches this filter.</p>
           ) : (
             <div className="space-y-5">
@@ -122,6 +136,15 @@ export default function ActivityPage() {
                   </div>
                   <Card as="div" className="overflow-hidden">
                     <ul className="divide-y divide-line">
+                      {month.charge > 0 && (
+                        <li className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                          <span>
+                            <span className="block font-semibold">Daily charge</span>
+                            <span className="block text-xs text-muted">Expected, until the next statement</span>
+                          </span>
+                          <span className="font-bold tabular-nums text-neg"><Amount value={month.charge} sign="−" /></span>
+                        </li>
+                      )}
                       {month.items.map(txn => <TransactionRow key={txn.id} txn={txn} showYear={false} />)}
                     </ul>
                   </Card>

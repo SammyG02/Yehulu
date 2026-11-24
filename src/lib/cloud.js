@@ -1,3 +1,4 @@
+import { sanitizeCharges } from './charge.js'
 import { SERVICE_CHARGE, sanitizeGoal, sanitizeRates } from './storage.js'
 
 /**
@@ -61,7 +62,10 @@ export function buildAccounts({ userId, accounts, members, profiles, rates, tran
           avatarUrl: m.role === 'guest' ? null : profileById.get(m.user_id)?.avatar_url ?? null,
           goal: sanitizeGoal({ target: m.goal_target, monthly: m.goal_monthly }),
           rates: memberRatesFrom(m.rates),
+          ...(m.charges ? { charges: sanitizeCharges(m.charges) } : {}),
         })),
+        // The database has daily charges (migration 017).
+        chargesReady: accountMembers.some(m => 'charges' in m),
         transactions: (txnsOf.get(a.id) ?? []).map(fromRow),
         activity: (activity.get(a.id) ?? []).map(r => ({
           memberKey: r.member_key, type: r.type, amount: Number(r.amount), date: r.date, noFee: Boolean(r.no_fee),
@@ -285,6 +289,10 @@ export const cloudApi = (client) => ({
   async setMemberRates(accountId, memberId, rates) {
     const json = rates ? rates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null
     check(await client.rpc('set_member_rates', { acc: accountId, member: memberId, new_rates: json }))
+  },
+  /** A person's daily charges: your own, or anyone's if you own the account (migration 017). */
+  async setCharges(accountId, memberId, charges) {
+    check(await client.rpc('set_charges', { acc: accountId, member: memberId, new_charges: charges }))
   },
   /** Owner: move a name-only member's history to someone who joined (migration 010). */
   async linkGuest(accountId, guestId, memberId, skipIds) {

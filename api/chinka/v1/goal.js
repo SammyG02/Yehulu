@@ -14,6 +14,7 @@
 // Same access key and limits as /data. See docs/chinka-api.md.
 
 import { addMonths, daysBetween } from '../../../src/lib/dates.js'
+import { withCharges } from '../../../src/lib/charge.js'
 import { planGoal, simulateLedger, summarize } from '../../../src/lib/interest.js'
 import { admit, rpc, send, todayInAddis } from '../../_lib/app.js'
 
@@ -67,8 +68,9 @@ export default async function handler(req, res) {
     const list = Array.isArray(own) && own.length ? own : acc.rates
     if (list.length) rates = list.map(r => ({ from: r.from, annualRate: Number(r.annual_rate) / 100, serviceCharge: 0.1 }))
     if (input.rate !== undefined) rates = [...rates.filter(r => r.from < today), { from: today, annualRate: num(input.rate) / 100, serviceCharge: 0.1 }]
+    rates = withCharges(rates, acc.members.find(m => m.id === uid)?.charges)
     transactions = [
-      ...acc.transactions.filter(t => t.member_id === uid).map(t => ({ id: t.id, type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee) })),
+      ...acc.transactions.filter(t => t.member_id === uid).map(t => ({ id: t.id, type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee), ref: t.ref, source: t.source })),
       ...transactions,
     ]
   }

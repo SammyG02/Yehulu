@@ -3,6 +3,7 @@
 // Uses the app's own interest maths, so the numbers match what they see.
 
 import { addDays } from './dates.js'
+import { withCharges } from './charge.js'
 import { simulateLedger, summarize } from './interest.js'
 
 const br = (n) => `Br ${Math.round(n).toLocaleString('en-US')}`
@@ -21,8 +22,8 @@ export function planNotifications(user, today) {
   const add = (n) => { if (!sent.has(`${n.kind}|${n.key}`)) out.push(n) }
 
   const accounts = (user.accounts ?? []).map(a => {
-    const rates = fractions(Array.isArray(a.my_rates) && a.my_rates.length ? a.my_rates : a.rates)
-    const transactions = a.transactions.map(t => ({ type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee) }))
+    const rates = withCharges(fractions(Array.isArray(a.my_rates) && a.my_rates.length ? a.my_rates : a.rates), a.my_charges)
+    const transactions = a.transactions.map(t => ({ type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee), ref: t.ref, source: t.source }))
     if (!transactions.length || !rates.length) return { ...a, balance: 0, week: 0, weekAgo: 0 }
     const ledger = simulateLedger({ transactions, rates, fromDate: today, endDate: today })
     const weekStart = addDays(today, -7)

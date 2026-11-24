@@ -63,12 +63,31 @@ export const dailyRate = ({ annualRate, serviceCharge }) =>
 export const effectiveAnnualRate = (rates) => (1 + dailyRate(rates)) ** DAYS_IN_YEAR - 1
 
 /**
+ * The last day imported statements cover (null if none). Up to it, a daily
+ * charge is whatever the statements show; after it, it's worked out.
+ */
+export function coveredUntil(transactions) {
+  let last = null
+  for (const t of transactions) {
+    if (!/^(y:|opening-)/.test(t.ref ?? '')) continue
+    const end = /\|(\d{4}-\d\d-\d\d)$/.exec(t.source ?? '')?.[1] ?? null
+    for (const day of [t.ref.startsWith('y:') ? t.date : null, end]) if (day && (!last || day > last)) last = day
+  }
+  return last
+}
+
+const isSunday = (day) => new Date(`${day}T00:00:00Z`).getUTCDay() === 0
+
+/**
  * Walks the calendar one day at a time, from the earliest transaction (or fromDate,
  * whichever is first) to endDate.
  *
  * Row fields:
  *   opening    balance at the start of the day (includes all earlier interest)
  *   fees       withdrawal fees taken that day
+ *   charges    the daily charge worked out for that day (a period's `dailyCharge`;
+ *              also part of `withdrawals`). Sunday's is taken on Monday, and none
+ *              is taken without enough money or on days a statement covers.
  *   available  balance after the day's deposits, withdrawals and fees, before its interest
  *   grossInterest / serviceCharge   that day's interest and the charge taken from it
  *   interest   credited overnight (gross minus the charge), paid on `available`
@@ -79,7 +98,10 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
     from: p.from,
     rate: toMicros(p.annualRate),
     charge: toMicros(p.serviceCharge),
+    daily: toCents(p.dailyCharge ?? 0),
   }))
+  const covered = schedule.some(p => p.daily > 0) ? coveredUntil(transactions) ?? '' : ''
+  let owed = 0
   let period = 0
   const flows = new Map()
   for (const txn of transactions) {
@@ -102,10 +124,18 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
   while (day <= endDate) {
     // Days only move forward, so the current period can only move forward too.
     while (period + 1 < schedule.length && schedule[period + 1].from <= day) period++
-    const { rate, charge } = schedule[period]
-    const { deposits, withdrawals, fees } = flows.get(day) ?? { deposits: 0, withdrawals: 0, fees: 0 }
+    const { rate, charge, daily } = schedule[period]
+    const { deposits, withdrawals: moved, fees } = flows.get(day) ?? { deposits: 0, withdrawals: 0, fees: 0 }
     const opening = balance
-    const available = opening + deposits - withdrawals - fees
+    let available = opening + deposits - moved - fees
+    if (daily > 0 && day >= schedule[period].from && day > covered) owed += daily
+    let charges = 0
+    if (owed > 0 && !isSunday(day)) {
+      if (available >= owed) charges = owed
+      owed = 0
+    }
+    available -= charges
+    const withdrawals = moved + charges
     const gross = available > 0 ? mulDivRound(available, rate, 365e6) : 0
     const serviceCharge = mulDivRound(gross, charge, 1e6)
     const interest = gross - serviceCharge
@@ -117,6 +147,7 @@ export function simulateLedger({ transactions, rates, fromDate, endDate }) {
       deposits: br(deposits),
       withdrawals: br(withdrawals),
       fees: br(fees),
+      charges: br(charges),
       available: br(available),
       grossInterest: br(gross),
       serviceCharge: br(serviceCharge),
@@ -234,7 +265,7 @@ export function planGoal({ transactions, rates, today, target, monthlyDeposit = 
   return null
 }
 
-const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'available', 'grossInterest', 'serviceCharge', 'interest', 'balance']
+const SUMMED = ['opening', 'deposits', 'withdrawals', 'fees', 'charges', 'available', 'grossInterest', 'serviceCharge', 'interest', 'balance']
 
 /**
  * The whole account's ledger when several people save in it. Everyone earns

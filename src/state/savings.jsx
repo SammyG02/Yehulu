@@ -5,10 +5,11 @@ import { cloudApi, fetchAccounts, seenOf } from '../lib/cloud.js'
 import { importChoices, planImport, planRemoval } from '../lib/statement.js'
 import { planLink } from '../lib/linkMembers.js'
 import { toDateKey } from '../lib/dates.js'
+import { sanitizeCharges } from '../lib/charge.js'
 import { formatDate, formatMoney } from '../lib/format.js'
 import { findNewOverdraft, periodOn, simulateLedger, summarize } from '../lib/interest.js'
 import {
-  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, nameTaken, newId, memberRateList, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
+  emptyAccount, emptyState, loadState, MAX_ACCOUNTS, nameTaken, newId, memberRateList, plainRatesOf, ratesOf, sanitizeRates, saveState, SERVICE_CHARGE, STORAGE_KEY, toRates,
 } from '../lib/storage.js'
 import { supabase } from '../lib/supabase.js'
 
@@ -199,14 +200,17 @@ export function SavingsProvider({ children }) {
     const local = loadState()
     const worth = local.accounts.filter(a => a.transactions.length > 0 || a.goal.target)
     for (const a of worth) {
+      const id = newId()
       await api.createAccount({
-        id: newId(),
+        id,
         name: a.name,
         rates: a.rates,
         goal: a.goal,
         // Fresh ids: old saves may have ids the database won't accept.
         transactions: a.transactions.map(t => ({ ...t, id: newId() })),
       }, userId)
+      // The money is what matters: without migration 017 the charge is just left off.
+      if (a.charges?.length) await api.setCharges(id, userId, a.charges).catch(() => {})
     }
     markUploaded(userId)
     return worth.length
@@ -640,7 +644,7 @@ export function SavingsProvider({ children }) {
     const current = activeOf(dataRef.current)
     const who = current.cloud ? userId : null
     const plan = planRemoval({
-      existing: ofMember(current.transactions, who), accountNo, from, to, source, rates: ratesOf(current, who), newId,
+      existing: ofMember(current.transactions, who), accountNo, from, to, source, rates: plainRatesOf(current, who), newId,
     })
     const gone = new Set(plan.remove)
     const added = plan.add.map(t => (current.cloud ? { ...t, memberId: who } : t))
@@ -742,6 +746,18 @@ export function SavingsProvider({ children }) {
     showToast('Name saved')
   }, [setData, remote, showToast])
 
+  /** Sets a person's daily charges (see charge.js): your own, or anyone's if you own the account. */
+  const setCharges = useCallback((memberId, list, message) => {
+    const current = activeOf(dataRef.current)
+    const charges = sanitizeCharges(list)
+    if (current.cloud && memberId !== userId && current.role !== 'owner') return
+    setData(d => withAccount(d, a => (a.cloud
+      ? { ...a, members: a.members.map(m => (m.id === memberId ? { ...m, charges } : m)) }
+      : { ...a, charges })))
+    if (current.cloud) remote(() => api.setCharges(current.id, memberId, charges))
+    showToast(message)
+  }, [userId, setData, remote, showToast])
+
   /**
    * Owner: give one member their own rate history, or null to go back to the
    * account rate. Asks first if it would push their balance below zero.
@@ -838,6 +854,7 @@ export function SavingsProvider({ children }) {
     addGuest,
     renameGuest,
     setMemberRates,
+    setCharges,
     linkGuest,
     leaveAccount,
     joinAccount,
@@ -862,7 +879,7 @@ export function SavingsProvider({ children }) {
     showToast,
     dismissToast,
   }), [addTransaction, updateTransaction, deleteTransaction, updateGoal, renameAccount, addAccount, importStatement, dismissImport, removeStatement, deleteAccount,
-    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, linkGuest, leaveAccount, joinAccount, invitePreview,
+    switchAccount, changeRates, setMembersSeeAll, setInvite, removeMember, addGuest, renameGuest, setMemberRates, setCharges, linkGuest, leaveAccount, joinAccount, invitePreview,
     uploadLocal, reload, showToast, dismissToast])
 
   const value = useMemo(() => ({

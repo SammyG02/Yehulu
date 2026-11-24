@@ -9,6 +9,7 @@
 // app's own interest code, so they're the same numbers the user sees.
 // See docs/chinka-api.md.
 
+import { withCharges } from '../../../src/lib/charge.js'
 import { feeOf, interestByMonth, simulateLedger, summarize } from '../../../src/lib/interest.js'
 import { admit, rpc, send, todayInAddis } from '../../_lib/app.js'
 
@@ -16,7 +17,7 @@ const SERVICE_CHARGE = 10
 
 const round2 = (x) => Math.round(x * 100) / 100
 const toFractions = (rates) => rates.map(r => ({ from: r.from, annualRate: Number(r.annual_rate) / 100, serviceCharge: SERVICE_CHARGE / 100 }))
-const asTxn = (t) => ({ id: t.id, type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee) })
+const asTxn = (t) => ({ id: t.id, type: t.type, amount: Number(t.amount), date: t.date, noFee: Boolean(t.no_fee), ref: t.ref, source: t.source })
 
 /** One person's money in an account: balance, interest and (optionally) every day. */
 function money(transactions, rates, today, withDaily) {
@@ -66,6 +67,8 @@ export default async function handler(req, res) {
         const own = a.members.find(m => m.id === memberId)?.rates
         return toFractions(Array.isArray(own) && own.length ? own : accountRates)
       }
+      // With their daily charge, if they have one (see src/lib/charge.js).
+      const charged = (memberId) => withCharges(ratesFor(memberId), a.members.find(m => m.id === memberId)?.charges)
       const all = a.transactions
       const of = (memberId) => all.filter(t => t.member_id === memberId).map(asTxn)
       const seesAll = a.role === 'owner' || a.members_see_all
@@ -73,7 +76,7 @@ export default async function handler(req, res) {
       const members = seesAll
         ? memberIds.map(id => {
           const m = a.members.find(x => x.id === id)
-          const mm = money(of(id), ratesFor(id), today, false)
+          const mm = money(of(id), charged(id), today, false)
           return { id, name: m?.name ?? '', role: m?.role ?? 'member', is_you: id === uid, balance: mm.balance, interest_to_date: mm.interest.to_date }
         })
         : undefined
@@ -85,7 +88,7 @@ export default async function handler(req, res) {
         rates: accountRates.map(x => ({ from: x.from, annual_rate: Number(x.annual_rate), service_charge: SERVICE_CHARGE })),
         your_rates: ratesFor(uid).map(x => ({ from: x.from, annual_rate: round2(x.annualRate * 100), service_charge: SERVICE_CHARGE })),
         goal: { target: a.goal?.target == null ? null : Number(a.goal.target), monthly: Number(a.goal?.monthly ?? 0) },
-        you: money(of(uid), ratesFor(uid), today, withDaily),
+        you: money(of(uid), charged(uid), today, withDaily),
         total_balance: members ? round2(members.reduce((sum, m) => sum + m.balance, 0)) : undefined,
         members,
         transactions: all.map(t => ({
