@@ -8,7 +8,7 @@ import { Field, inputClass } from '../../components/ui/Field.jsx'
 import { formatDate, formatMoney } from '../../lib/format.js'
 import { simulateLedger } from '../../lib/interest.js'
 import { buildImport, compareWithStatement, importChoices, importedPeriods, planImport, planRemoval, readStatementPdf, statementAccounts, suggestChoice } from '../../lib/statement.js'
-import { MAX_ACCOUNTS, memberRateList, nameTaken, ratesOf, toFraction } from '../../lib/storage.js'
+import { MAX_ACCOUNTS, memberRateList, nameTaken, newId, ratesOf, toFraction } from '../../lib/storage.js'
 import { useAccountBalances, useConfirm, useSavings } from '../../state/hooks.js'
 
 const NEW = 'new'
@@ -126,7 +126,10 @@ function Choice({ checked, onPick, title, detail, disabled = false }) {
 
 /** Step 2: what was found, the check against the statement, and where it goes. */
 function Review({ result, fileCount, onDone, onCancel }) {
-  const { accounts, me, today, actions } = useSavings()
+  const { accounts, me, today, importing, actions } = useSavings()
+  const busy = Boolean(importing)
+  // One id for this import, however often it's tried: it's never saved twice.
+  const [importId] = useState(newId)
   const balances = useAccountBalances()
   const choices = useMemo(
     () => importChoices({ accounts, me, accountNo: result.accountNo, lines: result.transactions }),
@@ -152,7 +155,6 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const [memberId, setMemberId] = useState(null)
   const who = target?.cloud ? (canPickMember ? memberId ?? choice?.memberId ?? me : me) : null
   const [useRates, setUseRates] = useState(true)
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [unverifiedOk, setUnverifiedOk] = useState(false)
 
@@ -198,8 +200,7 @@ function Review({ result, fileCount, onDone, onCancel }) {
   const firstCredit = plan.bridges.find(b => !b.note.startsWith('Missing'))
   const replacing = plan.remove.length
   const changes = plan.add.length + plan.remove.length + plan.moved.length > 0
-  // (Not while saving: what's being saved may already show up as there.)
-  const nothingNew = Boolean(target) && !refused && !changes && !busy
+  const nothingNew = Boolean(target) && !refused && !changes
   // Going somewhere else while another account already has these statements.
   const twice = target && choice?.kind !== 'same' ? [...new Set(sameIn.map(c => accounts.find(a => a.id === c.id).name))] : []
 
@@ -224,14 +225,12 @@ function Review({ result, fileCount, onDone, onCancel }) {
     setError(null)
     if (!into) return setError('Choose where it goes.')
     if (into === NEW && !name.trim()) return setError('Give the new account a name.')
-    setBusy(true)
     const outcome = await actions.importStatement({
-      into, name: name.trim().slice(0, 40), memberId: who, transactions: result.transactions, anchors: result.anchors,
+      importId, accountNo: result.accountNo, into, name: name.trim().slice(0, 40), memberId: who, transactions: result.transactions, anchors: result.anchors,
       rates: result.rates, useRates: into === NEW || useRates, period: { from: result.from, to: result.to },
     })
-    setBusy(false)
     if (outcome.error) return setError(outcome.error)
-    onDone({ ...outcome, name: target?.name ?? name.trim() })
+    onDone(outcome)
   }
 
   return (
@@ -429,12 +428,12 @@ function Review({ result, fileCount, onDone, onCancel }) {
         )}
       </Card>}
 
-      {error && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
+      {error && !nothingNew && <p role="alert" className="rounded-xl bg-neg-soft px-4 py-3 text-sm text-neg">{error}</p>}
       {nothingNew ? (
         <Button onClick={onCancel} className="w-full">Done</Button>
       ) : (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button onClick={doImport} disabled={busy || blocked || !into || Boolean(nameError) || !changes} className="min-w-0">
             <span className="truncate">{buttonText}</span>
           </Button>

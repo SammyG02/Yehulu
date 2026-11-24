@@ -135,6 +135,11 @@ export async function fetchAccounts(client, userId) {
 const toRateRows = (accountId, rates) =>
   rates.map(r => ({ account_id: accountId, from_date: r.from, annual_rate: r.annualRate }))
 
+const toImportRow = (t) => ({
+  id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
+  no_fee: t.type === 'withdrawal' && Boolean(t.noFee), ref: t.ref ?? null, source: t.source ?? null,
+})
+
 const toTxnRow = (accountId, t) => ({
   id: t.id, account_id: accountId, member_id: t.memberId, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
   // Only sent when used, so adding ordinary transactions keeps working on a
@@ -146,6 +151,23 @@ const toTxnRow = (accountId, t) => ({
 
 /** Is this error the database not having that function yet (a migration not run)? Anything else is a real failure. */
 const noSuchFunction = (error) => error.code === 'PGRST202' || (!error.code && /Could not find the function/i.test(error.message))
+
+/**
+ * What the app knew when it worked an import out, in three numbers. The
+ * database refuses the import if they no longer fit what it holds.
+ */
+export const seenOf = (transactions) => ({
+  count: transactions.length,
+  cents: transactions.reduce((sum, t) => sum + (t.type === 'deposit' ? 1 : -1) * Math.round(t.amount * 100), 0),
+  days: transactions.reduce((sum, t) => sum + Math.round(Date.parse(`${t.date}T00:00:00Z`) / 86400000), 0),
+})
+
+// The database's own answer (it refused, and changed nothing), as opposed to no
+// answer at all (the request may or may not have been carried out).
+const isAnswer = ({ code }) => /^PGRST[1-9]/.test(code ?? '') || (/^[0-9A-Z]{5}$/.test(code ?? '') && !/^(08|57P)/.test(code))
+
+/** How long to wait for an answer to an import: first try, second try. */
+export const IMPORT_WAITS = [30000, 15000]
 
 /** Every change the app can make, one function each. All throw on failure. */
 export const cloudApi = (client) => ({
@@ -178,31 +200,32 @@ export const cloudApi = (client) => ({
     check(await client.from('transactions').insert(toTxnRow(accountId, txn)))
   },
   /**
-   * A statement import, saved all at once or not at all (migration 006).
-   * Returns false if the database doesn't have that yet (then the caller
-   * falls back to separate requests). With corrected dates (migration 014)
-   * there's no falling back: it throws.
+   * Saves a statement import: all of it or nothing (migration 016). Without an
+   * answer it asks once more; the same `importId` is never carried out twice.
+   *   newAccount: { name, yehuluNo, refs } to create `accountId`, or null
+   *   seen: from seenOf; moves: [{ id, from, date }]
+   * Resolves to { accountId, added }. Throws a readable error; `unknown` on it
+   * means nobody answered, so it may have been saved.
    */
-  async importStatement(accountId, memberId, txns, removeIds, accountRates, memberRates, moves = []) {
-    const { error } = await client.rpc(moves.length ? 'import_statement_dated' : 'import_statement', {
-      acc: accountId,
-      member: memberId,
-      new_rows: txns.map(t => ({
-        id: t.id, type: t.type, amount: t.amount, date: t.date, note: t.note ?? '',
-        no_fee: t.type === 'withdrawal' && Boolean(t.noFee), ref: t.ref ?? null, source: t.source ?? null,
-      })),
-      remove_ids: removeIds,
-      account_rates: accountRates ? accountRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
-      member_rates: memberRates ? memberRates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null,
-      ...(moves.length ? { moves: moves.map(m => ({ id: m.id, from: m.from, to: m.date })) } : {}),
-    })
-    if (!error) return true
-    if (noSuchFunction(error)) {
-      // Never in pieces: balances would be wrong for everyone if it stopped halfway.
-      if (moves.length) throw new Error('this import also corrects dates, which needs the database update 014. Nothing was changed.')
-      return false
+  async saveImport({ importId, accountId, memberId, newAccount, seen, rows, removeIds, accountRates, memberRates, moves }, waits = IMPORT_WAITS) {
+    const ratesJson = (rates) => (rates ? rates.map(r => ({ from: r.from, annual_rate: r.annualRate })) : null)
+    const req = {
+      import_id: importId, account_id: accountId, member_id: memberId, seen,
+      new_account: newAccount ? { name: newAccount.name, yehulu_no: newAccount.yehuluNo ?? '', refs: newAccount.refs } : null,
+      rows: rows.map(toImportRow), remove_ids: removeIds,
+      account_rates: ratesJson(accountRates), member_rates: ratesJson(memberRates),
+      moves: moves.map(m => ({ id: m.id, from: m.from, to: m.date })),
     }
-    throw new Error(error.message)
+    for (const wait of waits) {
+      const stop = new AbortController()
+      const timer = setTimeout(() => stop.abort(), wait)
+      const { data, error } = await client.rpc('save_import', { req }).abortSignal(stop.signal)
+      clearTimeout(timer)
+      if (!error) return { accountId: data.account_id, added: data.added }
+      if (noSuchFunction(error)) throw new Error('Importing needs the database update 016. Nothing was changed.')
+      if (isAnswer(error)) throw new Error(error.message)
+    }
+    throw Object.assign(new Error('No answer from the server, so the import may or may not be saved. Check your connection, then tap again: it is never saved twice.'), { unknown: true })
   },
   /**
    * Removes imported statement lines (and adds bridges), all at once
@@ -232,20 +255,9 @@ export const cloudApi = (client) => ({
   async disconnectApp(id) {
     check(await client.from('app_connections').delete().eq('id', id))
   },
-  /** Many at once (statement import), in chunks the server accepts. */
+  /** A few at once (stand-in lines). */
   async addTransactions(accountId, txns) {
-    for (let i = 0; i < txns.length; i += 500) {
-      const rows = txns.slice(i, i + 500).map(t => toTxnRow(accountId, t))
-      // A statement line that's already there (another phone imported it a
-      // moment ago) is skipped by the database, never added twice.
-      const { error } = await client.from('transactions')
-        .upsert(rows, { onConflict: 'account_id,member_id,ref', ignoreDuplicates: true })
-      if (!error) continue
-      // Database without migration 005 yet: plain insert (the app already
-      // left out lines it knows are there).
-      if (!/no unique|ON CONFLICT/i.test(error.message)) throw new Error(error.message)
-      check(await client.from('transactions').insert(rows))
-    }
+    check(await client.from('transactions').insert(txns.map(t => toTxnRow(accountId, t))))
   },
   async updateTransaction(id, changes) {
     const { type, amount, date, note, noFee, hadNoFee } = changes

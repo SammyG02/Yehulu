@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildAccounts, cloudApi } from './cloud.js'
+import { buildAccounts, cloudApi, seenOf } from './cloud.js'
 
 const ME = 'u-me'
 const FRIEND = 'u-friend'
@@ -89,39 +89,72 @@ test("a member's own rate comes along; without one they earn the account rate", 
   assert.deepEqual(ratesOf(account, ME), account.rates.map(r => ({ ...r, annualRate: r.annualRate / 100, serviceCharge: r.serviceCharge / 100 })))
 })
 
-/** A pretend database: records each call and answers with `error`. */
-const pretend = (error = null) => {
+/** A pretend database: answers each call with the next of `answers` (the last one again after that). */
+const pretend = (...answers) => {
   const calls = []
-  return { calls, api: cloudApi({ rpc: async (name, args) => { calls.push([name, args]); return { data: 1, error } }, from: () => { throw new Error('separate request') } }) }
+  const api = cloudApi({
+    rpc: (name, args) => {
+      calls.push([name, args])
+      const answer = answers[Math.min(calls.length, answers.length) - 1]
+      return Object.assign(Promise.resolve(answer), {
+        abortSignal: (signal) => (answer === 'silence'
+          ? new Promise(r => signal.addEventListener('abort', () => r({ data: null, error: { code: '', message: 'AbortError: aborted' } })))
+          : Promise.resolve(answer)),
+      })
+    },
+    from: () => { throw new Error('separate request') },
+  })
+  return { calls, api }
 }
-const MISSING = { code: 'PGRST202', message: 'Could not find the function public.x in the schema cache' }
-const MOVES = [{ id: 't1', from: '2026-11-01', date: '2026-11-02' }]
+const SAVED = { data: { account_id: 'a', added: 1 }, error: null }
+const LOST = { data: null, error: { code: '', message: 'TypeError: Failed to fetch' } }
+const refused = (code, message) => ({ data: null, error: { code, message } })
+const IMPORT = {
+  importId: 'i1', accountId: 'a', memberId: ME, newAccount: { name: 'New', yehuluNo: '300', refs: ['y:300:a'] }, seen: seenOf([]),
+  rows: [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', noFee: true, ref: 'y:300:a', source: 's', memberId: ME }],
+  removeIds: ['b'], accountRates: [{ from: '2026-01-01', annualRate: 35 }], memberRates: null, moves: [{ id: 't', from: '2026-11-01', date: '2026-11-02' }],
+}
 
-test('an import saves corrected dates in the same single call', async () => {
-  const { api, calls } = pretend()
-  assert.equal(await api.importStatement('a', ME, [], ['b1'], null, null, MOVES), true)
-  assert.deepEqual(calls.map(c => c[0]), ['import_statement_dated'])
-  assert.deepEqual(calls[0][1].moves, [{ id: 't1', from: '2026-11-01', to: '2026-11-02' }])
+test('an import is one request with everything in it', async () => {
+  const { api, calls } = pretend(SAVED)
+  assert.deepEqual(await api.saveImport(IMPORT), { accountId: 'a', added: 1 })
+  assert.deepEqual(calls, [['save_import', { req: {
+    import_id: 'i1', account_id: 'a', member_id: ME, seen: { count: 0, cents: 0, days: 0 },
+    new_account: { name: 'New', yehulu_no: '300', refs: ['y:300:a'] },
+    rows: [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: '', no_fee: true, ref: 'y:300:a', source: 's' }],
+    remove_ids: ['b'], account_rates: [{ from: '2026-01-01', annual_rate: 35 }], member_rates: null,
+    moves: [{ id: 't', from: '2026-11-01', to: '2026-11-02' }],
+  } }]])
 })
 
-test('an import without corrected dates works on a database without migration 014', async () => {
-  const { api, calls } = pretend()
-  await api.importStatement('a', ME, [], [], null, null)
-  assert.deepEqual([calls[0][0], 'moves' in calls[0][1]], ['import_statement', false])
-  assert.equal(await pretend(MISSING).api.importStatement('a', ME, [], [], null, null), false, 'the caller saves it the older way')
+test('an import without an answer is asked again with the same id, once', async () => {
+  for (const nothing of [LOST, 'silence', refused(undefined, '<html>502</html>'), refused('08006', 'connection lost'), refused('57P01', 'shutting down'), refused('PGRST000', 'no connection')]) {
+    const again = pretend(nothing, SAVED)
+    assert.deepEqual(await again.api.saveImport(IMPORT, [20, 20]), { accountId: 'a', added: 1 })
+    assert.deepEqual(again.calls[0], again.calls[1])
+    const never = pretend(nothing)
+    await assert.rejects(never.api.saveImport(IMPORT, [20, 20]), (err) => err.unknown === true && /never saved twice/.test(err.message))
+    assert.equal(never.calls.length, 2)
+  }
 })
 
-test('corrected dates are refused, never saved in pieces, on a database without migration 014', async () => {
-  const { api, calls } = pretend(MISSING)
-  await assert.rejects(api.importStatement('a', ME, [], [], null, null, MOVES), /014.*Nothing was changed/)
-  assert.equal(calls.length, 1)
+test('an import the database refuses is not asked again, and its own words are shown', async () => {
+  for (const [code, message] of [['P0001', 'This account has just changed.'], ['42501', 'permission denied for function save_import'], ['23514', 'bad row'], ['57014', 'statement timeout'], ['PGRST301', 'JWT expired']]) {
+    const { api, calls } = pretend(refused(code, message))
+    await assert.rejects(api.saveImport(IMPORT), (err) => !err.unknown && err.message === message)
+    assert.equal(calls.length, 1)
+  }
+  await assert.rejects(pretend(refused('PGRST202', 'Could not find the function')).api.saveImport(IMPORT), /016.*Nothing was changed/)
 })
 
-test('any other failure is reported as it is, not as a missing update', async () => {
-  for (const error of [
-    { code: '42501', message: 'permission denied for function import_statement_dated' },
-    { code: 'P0001', message: 'Some of these lines changed meanwhile.' },
-    { code: '', message: 'TypeError: Failed to fetch' },
-  ]) await assert.rejects(pretend(error).api.importStatement('a', ME, [], [], null, null, MOVES), { message: error.message })
-  await assert.rejects(pretend({ code: '42501', message: 'permission denied for function remove_statement_lines' }).api.removeStatementLines('a', ME, [], []), /permission denied/)
+test('seenOf: any change to the transactions shows', () => {
+  const a = { type: 'deposit', amount: 10.1, date: '2026-01-02' }
+  const b = { type: 'withdrawal', amount: 0.2, date: '2026-01-03' }
+  assert.deepEqual(seenOf([a, b]), { count: 2, cents: 990, days: 20455 + 20456 })
+  for (const other of [[a], [a, { ...b, amount: 0.3 }], [a, { ...b, date: '2026-01-04' }], [a, { ...b, type: 'deposit' }]]) assert.notDeepEqual(seenOf(other), seenOf([a, b]))
+})
+
+test('removing a statement: a refusal is not mistaken for a missing update', async () => {
+  await assert.rejects(pretend(refused('42501', 'permission denied for function remove_statement_lines')).api.removeStatementLines('a', ME, [], []), /permission denied/)
+  assert.equal(await pretend(refused('PGRST202', 'Could not find the function')).api.removeStatementLines('a', ME, [], []), false)
 })

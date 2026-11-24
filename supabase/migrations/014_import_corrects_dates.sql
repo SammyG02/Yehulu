@@ -1,7 +1,7 @@
 -- Importing a statement can also correct the dates of lines imported earlier,
 -- in the same all-at-once save (so nobody ever sees half of it).
--- Changes no existing rows. Run after 011. Safe to run more than once, and
--- 006 or 011 can be run again after it.
+-- Changes no existing rows. Run after 011. Safe to run more than once.
+-- (011 can be run again after it. After running 006 again, run this again too.)
 
 do $$
 begin

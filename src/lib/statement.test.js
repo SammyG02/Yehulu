@@ -536,21 +536,6 @@ test('a statement without printed opening/closing balances is flagged as unverif
   assert.equal(buildImport([ok]).unconfirmed, 0)
 })
 
-test('atomic cloud import: sends one request; falls back only when the database lacks it', async () => {
-  const { cloudApi } = await import('./cloud.js')
-  const calls = []
-  const client = (error) => ({ rpc: async (name, args) => { calls.push([name, args]); return { error } } })
-  const txn = { id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', noFee: true, ref: 'y:1:abc' }
-  assert.equal(await cloudApi(client(null)).importStatement('acc', 'me', [txn], ['old'], null, [{ from: '2026-01-01', annualRate: 2 }]), true)
-  assert.deepEqual(calls[0][1].new_rows, [{ id: 'x', type: 'withdrawal', amount: 10, date: '2026-03-01', note: 'Standing Order', no_fee: true, ref: 'y:1:abc', source: null }])
-  assert.deepEqual(calls[0][1].remove_ids, ['old'])
-  assert.deepEqual(calls[0][1].member_rates, [{ from: '2026-01-01', annual_rate: 2 }])
-  assert.equal(await cloudApi(client({ message: 'Could not find the function public.import_statement', code: 'PGRST202' })).importStatement('acc', 'me', [], [], null, null), false)
-  await assert.rejects(cloudApi(client({ message: 'permission denied for function import_statement', code: '42501' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
-  await assert.rejects(cloudApi(client({ message: 'Could not choose the best candidate function between: public.import_statement', code: 'PGRST203' })).importStatement('acc', 'me', [], [], null, null), /best candidate/)
-  await assert.rejects(cloudApi(client({ message: 'permission denied' })).importStatement('acc', 'me', [], [], null, null), /permission denied/)
-})
-
 // ---- removing imported statements -----------------------------------------------
 
 const removeFrom = async (acc, from, to) => {

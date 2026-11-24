@@ -16,6 +16,21 @@ declare
   b3 uuid := gen_random_uuid();
   res text := 'RESULTS:';
   n int;
+  k int;
+  i1 uuid := gen_random_uuid();
+  i2 uuid := gen_random_uuid();
+  i3 uuid := gen_random_uuid();
+  i4 uuid := gen_random_uuid();
+  i5 uuid := gen_random_uuid();
+  acc4 uuid := gen_random_uuid();
+  acc5 uuid := gen_random_uuid();
+  acc6 uuid := gen_random_uuid();
+  got jsonb;
+  acc2 uuid := gen_random_uuid();
+  acc3 uuid := gen_random_uuid();
+  p1 jsonb := jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 10, 'date', '2026-03-01', 'ref', 'y:TEST:P1');
+  p2 jsonb := jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 20, 'date', '2026-03-02', 'ref', 'y:TEST:P2');
+  p3 jsonb := jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 30, 'date', '2026-03-03', 'ref', 'y:TEST:P3');
   rate numeric;
   err text;
   r1 jsonb; r2 jsonb; r3 jsonb; r4 jsonb; r5 jsonb; rm1 jsonb; rm2 jsonb; rm3 jsonb; rm4 jsonb;
@@ -257,17 +272,167 @@ begin
   res := res || E'\n' || case when err is not null and n = 1 then 'PASS' else 'FAIL' end || '  an entry someone typed in themselves is never moved';
   end if;
 
+  -- 6. A NEW ACCOUNT in one step (migration 015).
+  res := res || E'\n' || case when to_regprocedure('public.import_new_account(uuid,text,jsonb,jsonb)') is not null then 'PASS' else 'FAIL' end || '  015: a statement can go into a new account in one step';
+  if to_regprocedure('public.import_new_account(uuid,text,jsonb,jsonb)') is not null then
+  res := res || E'\n' || case when not has_function_privilege('anon', 'public.import_new_account(uuid,text,jsonb,jsonb)', 'execute') and has_function_privilege('authenticated', 'public.import_new_account(uuid,text,jsonb,jsonb)', 'execute') then 'PASS' else 'FAIL' end || '  015: only signed-in people can call it';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc2, 'New test', '[{"from":"2026-01-01","annual_rate":35}]'::jsonb, jsonb_build_array(p1, p2)) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into k from public.transactions where account_id = acc2 and member_id = m;
+  res := res || E'\n' || case when err is null and n = 2 and k = 2 and exists (select 1 from public.accounts where id = acc2 and owner_id = m) and exists (select 1 from public.rates where account_id = acc2 and annual_rate = 35) and exists (select 1 from public.account_members where account_id = acc2 and user_id = m and role = 'owner') then 'PASS' else 'FAIL' end || '  new account: the account, its owner, its rate and its lines are saved';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc2, 'New test', '[{"from":"2026-01-01","annual_rate":35}]'::jsonb, jsonb_build_array(p1, p2)) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into k from public.transactions where account_id = acc2;
+  res := res || E'\n' || case when err is null and n = 0 and k = 2 then 'PASS' else 'FAIL' end || '  new account: the same request sent twice changes nothing';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc3, 'New test', '[{"from":"2026-01-01","annual_rate":35}]'::jsonb, jsonb_build_array(jsonb_set(p2, '{id}', to_jsonb(gen_random_uuid())), p3)) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err like '%already in your account "New test"%' and not exists (select 1 from public.accounts where id = acc3) and not exists (select 1 from public.transactions where ref = 'y:TEST:P3') then 'PASS' else 'FAIL' end || '  new account: a statement you already have is refused, nothing is kept';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc3, 'New test', '[{"from":"2026-01-01","annual_rate":500}]'::jsonb, jsonb_build_array(p3)) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is not null and not exists (select 1 from public.accounts where id = acc3) then 'PASS' else 'FAIL' end || '  new account: when a step fails, not even the account is kept';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc2, 'New test', '[{"from":"2026-01-01","annual_rate":35}]'::jsonb, jsonb_build_array(p3)) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into k from public.transactions where account_id = acc2;
+  res := res || E'\n' || case when err is not null and k = 2 then 'PASS' else 'FAIL' end || '  new account: nobody can write into someone else''s account this way';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; n := null;
+  begin select public.import_new_account(acc3, 'New test', '[{"from":"2026-01-01","annual_rate":35}]'::jsonb, jsonb_build_array(jsonb_set(p1, '{id}', to_jsonb(gen_random_uuid())))) into n; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null and n = 1 then 'PASS' else 'FAIL' end || '  new account: another person''s statements don''t get in the way';
+  end if;
+
+  -- 7. ONE WAY TO SAVE AN IMPORT (migration 016).
+  res := res || E'\n' || case when to_regprocedure('public.save_import(jsonb)') is not null then 'PASS' else 'FAIL' end || '  016: one way to save an import';
+  if to_regprocedure('public.save_import(jsonb)') is not null then
+  res := res || E'\n' || case when not has_function_privilege('anon', 'public.save_import(jsonb)', 'execute') and has_function_privilege('authenticated', 'public.save_import(jsonb)', 'execute') and not has_table_privilege('anon', 'public.imports', 'select') and not has_table_privilege('authenticated', 'public.imports', 'update') then 'PASS' else 'FAIL' end || '  016: only signed-in people can call it, and its record can''t be edited';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i1, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 5, 'date', '2026-04-01', 'ref', 'y:SAVE:1')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null and (got ->> 'added')::int = 1 then 'PASS' else 'FAIL' end || '  save: into an existing account';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i1, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 6, 'date', '2026-04-01', 'ref', 'y:SAVE:2')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where ref = 'y:SAVE:2';
+  res := res || E'\n' || case when err is null and n = 0 and got = jsonb_build_object('account_id', acc, 'added', 1) then 'PASS' else 'FAIL' end || '  save: the same id again gives the first answer and changes nothing';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i2, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', '{"count":0,"cents":0,"days":0}'::jsonb, 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 6, 'date', '2026-04-01', 'ref', 'y:SAVE:2')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where ref = 'y:SAVE:2';
+  res := res || E'\n' || case when err like '%just changed%' and n = 0 then 'PASS' else 'FAIL' end || '  save: refused if the account has changed since';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i2, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 6, 'date', '2026-04-01', 'ref', 'y:SAVE:1')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err like '%already there%' then 'PASS' else 'FAIL' end || '  save: refused if a line is already there';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i2, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 6, 'date', '2026-04-01', 'ref', 'y:SAVE:2')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":500}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where ref = 'y:SAVE:2';
+  select count(*) into k from public.imports where id = i2;
+  res := res || E'\n' || case when err is not null and n = 0 and k = 0 then 'PASS' else 'FAIL' end || '  save: when a step fails nothing is kept, not even its id';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i2, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 6, 'date', '2026-04-01', 'ref', 'y:SAVE:2')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null and (got ->> 'added')::int = 1 then 'PASS' else 'FAIL' end || '  save: so the same id can be tried again';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i1, 'account_id', acc, 'member_id', m, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = m), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 7, 'date', '2026-04-01', 'ref', 'y:SAVE:3')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is not null then 'PASS' else 'FAIL' end || '  save: someone else''s id is no use to you';
+  perform set_config('request.jwt.claim.sub', m::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i3, 'account_id', acc, 'member_id', o, 'new_account', 'null'::jsonb, 'seen', (select jsonb_build_object('count', 0, 'cents', 0, 'days', 0)), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 7, 'date', '2026-04-01', 'ref', 'y:SAVE:4')), 'remove_ids', '[]'::jsonb, 'account_rates', 'null'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  select count(*) into n from public.transactions where ref = 'y:SAVE:4';
+  res := res || E'\n' || case when err is not null and n = 0 then 'PASS' else 'FAIL' end || '  save: a member can''t import into the owner''s money';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i3, 'account_id', acc4, 'member_id', o, 'new_account', '{"name":"Saved","yehulu_no":"NEWNO","refs":[]}'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 8, 'date', '2026-04-01', 'ref', 'y:SAVE:5')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":20}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null and (got ->> 'account_id')::uuid = acc4 and exists (select 1 from public.accounts where id = acc4 and name = 'Saved' and owner_id = o) and exists (select 1 from public.rates where account_id = acc4 and annual_rate = 20) then 'PASS' else 'FAIL' end || '  save: into a new account, with its rate';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i3, 'account_id', acc5, 'member_id', o, 'new_account', '{"name":"Saved","yehulu_no":"NEWNO","refs":[]}'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 8, 'date', '2026-04-01', 'ref', 'y:SAVE:5')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":20}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null and (got ->> 'account_id')::uuid = acc4 and not exists (select 1 from public.accounts where id = acc5) then 'PASS' else 'FAIL' end || '  save: tried again with the same id, still one new account';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i4, 'account_id', acc5, 'member_id', o, 'new_account', '{"name":"Saved","yehulu_no":"SAVE","refs":[]}'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 9, 'date', '2026-04-01', 'ref', 'y:OTHER:1')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":20}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err like '%already in%' and not exists (select 1 from public.accounts where id = acc5) then 'PASS' else 'FAIL' end || '  save: the same Yehulu account never goes into a second one, whatever the statement';
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i4, 'account_id', acc5, 'member_id', o, 'new_account', '{"name":"Saved","yehulu_no":"OTHER","refs":["LEGACY:1"]}'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 9, 'date', '2026-04-01', 'ref', 'y:OTHER:1')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":20}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err is null then 'PASS' else 'FAIL' end || '  save: another Yehulu account is fine';
+  update public.transactions set ref = 'LEGACY:9' where account_id = acc5;
+  perform set_config('request.jwt.claim.sub', o::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  err := null; got := null;
+  begin select public.save_import(jsonb_build_object('import_id', i5, 'account_id', acc6, 'member_id', o, 'new_account', '{"name":"Saved","yehulu_no":"MORE","refs":["LEGACY:9"]}'::jsonb, 'seen', (select jsonb_build_object('count', count(*), 'cents', (coalesce(sum(case type when 'deposit' then amount else -amount end), 0) * 100)::bigint, 'days', coalesce(sum(date - date '1970-01-01'), 0)) from public.transactions where account_id = acc and member_id = o), 'rows', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'type', 'deposit', 'amount', 9, 'date', '2026-04-01', 'ref', 'y:MORE:1')), 'remove_ids', '[]'::jsonb, 'account_rates', '[{"from":"2026-01-01","annual_rate":20}]'::jsonb, 'member_rates', 'null'::jsonb, 'moves', '[]'::jsonb)) into got; exception when others then err := sqlerrm; end;
+  execute 'reset role';
+  res := res || E'\n' || case when err like '%already in%' then 'PASS' else 'FAIL' end || '  save: lines kept under their older names are recognised too';
+  delete from public.accounts where id = acc4;
+  select count(*) into n from public.imports where account_id = acc4;
+  res := res || E'\n' || case when n = 0 then 'PASS' else 'FAIL' end || '  save: deleting the account forgets its imports';
+  end if;
+
   -- Undo everything (on purpose) and show the results.
   -- The total and any failures come first, in case the list is cut off.
-  raise exception E'% PASS, % FAIL (all of this was undone afterwards)%
-
-%',
-    (select count(*) from regexp_matches(res, E'
-PASS  ', 'g')),
-    (select count(*) from regexp_matches(res, E'
-FAIL  ', 'g')),
-    coalesce((select string_agg(E'
-' || line, '') from regexp_split_to_table(res, E'
-') line where line like 'FAIL  %'), ''),
-    res;
+  raise exception '%', (select count(*) from regexp_matches(res, 'PASS  ', 'g')) || ' PASS, '
+    || (select count(*) from regexp_matches(res, 'FAIL  ', 'g')) || ' FAIL (all of this was undone afterwards)'
+    || coalesce((select string_agg(E'\n' || line, '') from unnest(string_to_array(res, E'\n')) line where line like 'FAIL  %'), '')
+    || E'\n' || E'\n' || res;
 end $$;

@@ -4,6 +4,7 @@ import { useSavings } from '../../state/hooks.js'
 import { TransactionComposer } from '../transactions/TransactionComposer.jsx'
 import { BottomNav } from './BottomNav.jsx'
 import { CloudGate } from './CloudGate.jsx'
+import { ImportProgress } from './ImportProgress.jsx'
 import { PullToRefresh } from './PullToRefresh.jsx'
 import { TopBar } from './TopBar.jsx'
 
@@ -67,6 +68,7 @@ export function AppShell() {
       </main>
       <BottomNav />
       <TransactionComposer />
+      <ImportProgress />
       <Toast />
     </div>
   )
