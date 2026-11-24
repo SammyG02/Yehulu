@@ -5,3 +5,10 @@ dist
 
 
 .env*
+# Private Claude / agent skills setup
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.agents/
+skills-lock.json
+docs/agents/
